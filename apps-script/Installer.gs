@@ -1,6 +1,6 @@
-/* -------------------- v3.0 alpha.6 installer -------------------- */
+/* -------------------- v3.0 alpha.8 installer -------------------- */
 
-const INSTALLER_APP_VERSION = '3.0.0-alpha.6';
+const INSTALLER_APP_VERSION = '3.0.0-alpha.8';
 const INSTALLER_SCHEMA_VERSION = 3;
 
 function isAttendanceInstallationComplete_(spreadsheet) {
@@ -16,6 +16,270 @@ function isAttendanceInstallationComplete_(spreadsheet) {
   ).trim();
 
   return schema === String(INSTALLER_SCHEMA_VERSION) && status === 'ready';
+}
+
+function getDefaultScoreScaleRows_() {
+  return [
+    [0, 0, '#D9EAF7', '0 — синий', true],
+    [1, 2, '#D9EAD3', '1–2 — зелёный', true],
+    [3, 4, '#E2F0D9', '3–4 — светло-зелёный', true],
+    [5, 5, '#FFF2CC', '5 — жёлтый', true],
+    [6, 7, '#FCE5CD', '6–7 — жёлто-оранжевый', true],
+    [8, 9, '#F9CB9C', '8–9 — оранжевый', true],
+    [10, '', '#F4CCCC', '10+ — красный', true]
+  ];
+}
+
+function ensureScoreScaleSheet_(spreadsheet) {
+  let sh = spreadsheet.getSheetByName(SHEETS.SCORE_SCALE);
+  if (!sh) {
+    sh = spreadsheet.insertSheet(SHEETS.SCORE_SCALE);
+    setupScoreScaleSheet_(sh);
+    return sh;
+  }
+
+  if (sh.getLastRow() < 2) {
+    setupScoreScaleSheet_(sh);
+  }
+
+  return sh;
+}
+
+function setupScoreScaleSheet_(sheet) {
+  if (sheet.getMaxRows() < 100) {
+    sheet.insertRowsAfter(
+      sheet.getMaxRows(),
+      100 - sheet.getMaxRows()
+    );
+  }
+
+  if (sheet.getMaxColumns() < 5) {
+    sheet.insertColumnsAfter(
+      sheet.getMaxColumns(),
+      5 - sheet.getMaxColumns()
+    );
+  }
+
+  sheet.getRange(1, 1, 100, 5)
+    .clearContent()
+    .clearFormat()
+    .clearDataValidations()
+    .clearNote();
+
+  sheet.getRange('A1:E1')
+    .setValues([[
+      'От',
+      'До',
+      'Цвет (HEX)',
+      'Описание',
+      'Активен'
+    ]])
+    .setFontWeight('bold')
+    .setBackground('#EAEAEA');
+
+  const defaults = getDefaultScoreScaleRows_();
+
+  sheet.getRange(
+    2,
+    1,
+    defaults.length,
+    5
+  ).setValues(defaults);
+
+  const checkboxRule = SpreadsheetApp
+    .newDataValidation()
+    .requireCheckbox()
+    .setAllowInvalid(false)
+    .build();
+
+  sheet.getRange(
+    2,
+    5,
+    sheet.getMaxRows() - 1,
+    1
+  ).setDataValidation(checkboxRule);
+
+  defaults.forEach((row, idx) => {
+    sheet.getRange(idx + 2, 3)
+      .setBackground(row[2]);
+  });
+
+  sheet.getRange('B1').setNote(
+    'Пустое значение означает «и выше». Например, 10 + пустое «До» = 10+.'
+  );
+
+  sheet.getRange('C1').setNote(
+    'Используется для фиксированной универсальной цветовой шкалы в «Журнале».'
+  );
+
+  sheet.getRange('D1').setNote(
+    'Описание только для человека; на расчёты не влияет.'
+  );
+
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 90);
+  sheet.setColumnWidth(2, 90);
+  sheet.setColumnWidth(3, 120);
+  sheet.setColumnWidth(4, 260);
+  sheet.setColumnWidth(5, 100);
+}
+
+function getScoreScale_(spreadsheet) {
+  const sh = ensureScoreScaleSheet_(spreadsheet);
+  const lastRow = sh.getLastRow();
+
+  if (lastRow < 2) return [];
+
+  const rows = sh.getRange(
+    2,
+    1,
+    lastRow - 1,
+    5
+  ).getValues();
+
+  return rows
+    .map((r, idx) => {
+      const minRaw = r[0];
+      const maxRaw = r[1];
+      const color = String(r[2] || '').trim();
+      const label = String(r[3] || '').trim();
+      const active = settingBool_(r[4], true);
+
+      if (
+        minRaw === '' ||
+        minRaw == null ||
+        !Number.isFinite(Number(minRaw)) ||
+        !/^#[0-9A-Fa-f]{6}$/.test(color) ||
+        !active
+      ) {
+        return null;
+      }
+
+      const min = Number(minRaw);
+      const hasMax =
+        maxRaw !== '' &&
+        maxRaw != null &&
+        Number.isFinite(Number(maxRaw));
+
+      const max = hasMax
+        ? Number(maxRaw)
+        : null;
+
+      return {
+        row: idx + 2,
+        min,
+        max,
+        color,
+        label
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.min - b.min);
+}
+
+function getLessonScoreRanges_(spreadsheet) {
+  const journal = spreadsheet.getSheetByName(SHEETS.JOURNAL);
+  const lessons = spreadsheet.getSheetByName(SHEETS.LESSONS);
+
+  if (!journal || !lessons) return [];
+
+  const lastRow = lessons.getLastRow();
+  if (lastRow < 2) return [];
+
+  const rows = lessons.getRange(
+    2,
+    1,
+    lastRow - 1,
+    LESSON_COL.GRADE_COL
+  ).getValues();
+
+  const seen = new Set();
+  const ranges = [];
+  const height = Math.max(
+    journal.getMaxRows() - JOURNAL_LAYOUT.DATA_START_ROW + 1,
+    1
+  );
+
+  rows.forEach(r => {
+    const lessonId =
+      String(r[LESSON_COL.ID - 1] || '').trim();
+
+    if (!lessonId) return;
+
+    [
+      r[LESSON_COL.ATTENDANCE_COL - 1],
+      r[LESSON_COL.GRADE_COL - 1]
+    ].forEach(rawCol => {
+      const col = Number(rawCol);
+
+      if (
+        !Number.isInteger(col) ||
+        col < 3 ||
+        col > journal.getMaxColumns() ||
+        seen.has(col)
+      ) {
+        return;
+      }
+
+      seen.add(col);
+
+      ranges.push(
+        journal.getRange(
+          JOURNAL_LAYOUT.DATA_START_ROW,
+          col,
+          height,
+          1
+        )
+      );
+    });
+  });
+
+  return ranges;
+}
+
+function applyScoreScaleFormatting_(spreadsheet) {
+  const journal = spreadsheet.getSheetByName(SHEETS.JOURNAL);
+  if (!journal) return 0;
+
+  const ranges = getLessonScoreRanges_(spreadsheet);
+  const scale = getScoreScale_(spreadsheet);
+
+  /*
+   * Journal — generated view, поэтому условное форматирование
+   * его оценочных ячеек управляется приложением.
+   * Сводные колонки намеренно не входят в ranges.
+   */
+  if (!ranges.length || !scale.length) {
+    journal.setConditionalFormatRules([]);
+    return 0;
+  }
+
+  const rules = scale.map(item => {
+    let builder = SpreadsheetApp
+      .newConditionalFormatRule();
+
+    if (item.max == null) {
+      builder = builder
+        .whenNumberGreaterThanOrEqualTo(item.min);
+    } else if (item.min === item.max) {
+      builder = builder
+        .whenNumberEqualTo(item.min);
+    } else {
+      builder = builder
+        .whenNumberBetween(
+          item.min,
+          item.max
+        );
+    }
+
+    return builder
+      .setBackground(item.color)
+      .setRanges(ranges)
+      .build();
+  });
+
+  journal.setConditionalFormatRules(rules);
+  return rules.length;
 }
 
 function syncVersionMetadata_(spreadsheet) {
@@ -37,7 +301,10 @@ function syncVersionMetadata_(spreadsheet) {
   );
 
   const schema = String(
-    getSettingValueInSpreadsheet_(spreadsheet, 'schema_version') || ''
+    getSettingValueInSpreadsheet_(
+      spreadsheet,
+      'schema_version'
+    ) || ''
   ).trim();
 
   if (!schema) {
@@ -57,18 +324,28 @@ function migrateLegacyLessonStatuses_(spreadsheet) {
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return 0;
 
-  const range = sh.getRange(2, LESSON_COL.STATUS, lastRow - 1, 1);
+  const range = sh.getRange(
+    2,
+    LESSON_COL.STATUS,
+    lastRow - 1,
+    1
+  );
+
   const values = range.getValues();
   let changed = 0;
 
   values.forEach(row => {
-    if (String(row[0] || '').trim().toLowerCase() === 'finished') {
+    const value = String(row[0] || '').trim().toLowerCase();
+    if (value === 'finished') {
       row[0] = 'closed';
       changed++;
     }
   });
 
-  if (changed) range.setValues(values);
+  if (changed) {
+    range.setValues(values);
+  }
+
   return changed;
 }
 
@@ -81,11 +358,14 @@ function applyLessonDateFormats_(spreadsheet) {
   sh.getRange(2, LESSON_COL.DATE, rows, 1)
     .setNumberFormat('dd.MM.yyyy');
 
-  [LESSON_COL.STARTED, LESSON_COL.ENDED, LESSON_COL.CREATED]
-    .forEach(col => {
-      sh.getRange(2, col, rows, 1)
-        .setNumberFormat('dd.MM.yyyy HH:mm:ss');
-    });
+  [
+    LESSON_COL.STARTED,
+    LESSON_COL.ENDED,
+    LESSON_COL.CREATED
+  ].forEach(col => {
+    sh.getRange(2, col, rows, 1)
+      .setNumberFormat('dd.MM.yyyy HH:mm:ss');
+  });
 }
 
 function applyLessonValidationRules_(spreadsheet) {
@@ -110,21 +390,36 @@ function applyLessonValidationRules_(spreadsheet) {
 
   const rows = Math.max(sh.getMaxRows() - 1, 1);
 
-  sh.getRange(2, LESSON_COL.MODE, rows, 1).setDataValidation(modeRule);
-  sh.getRange(2, LESSON_COL.TYPE, rows, 1).setDataValidation(typeRule);
-  sh.getRange(2, LESSON_COL.STATUS, rows, 1).setDataValidation(statusRule);
+  sh.getRange(2, LESSON_COL.MODE, rows, 1)
+    .setDataValidation(modeRule);
+
+  sh.getRange(2, LESSON_COL.TYPE, rows, 1)
+    .setDataValidation(typeRule);
+
+  sh.getRange(2, LESSON_COL.STATUS, rows, 1)
+    .setDataValidation(statusRule);
 }
 
 function countInstallerStudents_(spreadsheet, activeOnly) {
   const sh = spreadsheet.getSheetByName(SHEETS.STUDENTS);
   if (!sh || sh.getLastRow() < 2) return 0;
 
-  const values = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
+  const values = sh.getRange(
+    2,
+    1,
+    sh.getLastRow() - 1,
+    3
+  ).getValues();
 
   return values.filter(r => {
-    const hasStudent = r[0] !== '' && r[0] != null && String(r[1] || '').trim();
+    const hasStudent =
+      r[0] !== '' &&
+      r[0] != null &&
+      String(r[1] || '').trim();
+
     if (!hasStudent) return false;
     if (!activeOnly) return true;
+
     return settingBool_(r[2], true);
   }).length;
 }
@@ -136,26 +431,49 @@ function getInstallationHealth_(spreadsheet) {
     SHEETS.LESSONS,
     SHEETS.TYPES,
     SHEETS.SETTINGS,
-    SHEETS.MARKS
+    SHEETS.MARKS,
+    SHEETS.SCORE_SCALE
   ];
 
-  const missing = required.filter(name => !spreadsheet.getSheetByName(name));
-  const settings = spreadsheet.getSheetByName(SHEETS.SETTINGS);
+  const missing = required.filter(
+    name => !spreadsheet.getSheetByName(name)
+  );
 
+  const settings = spreadsheet.getSheetByName(SHEETS.SETTINGS);
   const storedVersion = settings
-    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'app_version') || '').trim()
+    ? String(
+        getSettingValueInSpreadsheet_(
+          spreadsheet,
+          'app_version'
+        ) || ''
+      ).trim()
     : '';
 
   const storedSchema = settings
-    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'schema_version') || '').trim()
+    ? String(
+        getSettingValueInSpreadsheet_(
+          spreadsheet,
+          'schema_version'
+        ) || ''
+      ).trim()
     : '';
 
   const installStatus = settings
-    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'install_status') || '').trim()
+    ? String(
+        getSettingValueInSpreadsheet_(
+          spreadsheet,
+          'install_status'
+        ) || ''
+      ).trim()
     : '';
 
   const webAppUrl = settings
-    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'web_app_url') || '').trim()
+    ? String(
+        getSettingValueInSpreadsheet_(
+          spreadsheet,
+          'web_app_url'
+        ) || ''
+      ).trim()
     : '';
 
   const lessonSheet = spreadsheet.getSheetByName(SHEETS.LESSONS);
@@ -174,7 +492,10 @@ function getInstallationHealth_(spreadsheet) {
       const id = String(r[LESSON_COL.ID - 1] || '').trim();
       if (!id) return;
       lessons++;
-      if (String(r[LESSON_COL.STATUS - 1] || '').trim() === 'active') {
+
+      if (
+        String(r[LESSON_COL.STATUS - 1] || '').trim() === 'active'
+      ) {
         activeLessons++;
       }
     });
@@ -202,12 +523,12 @@ function installAttendanceWorkbook() {
   }
 
   const ui = SpreadsheetApp.getUi();
-  const alreadyReady = isAttendanceInstallationComplete_(spreadsheet);
 
+  const alreadyReady = isAttendanceInstallationComplete_(spreadsheet);
   const answer = ui.alert(
     alreadyReady ? 'Переустановить структуру журнала?' : 'Установить журнал посещаемости?',
     alreadyReady
-      ? 'Структура уже отмечена как установленная. Переустановка очистит служебные листы.'
+      ? 'Структура уже отмечена как установленная. Для теста переустановка очистит служебные листы.'
       : 'Установщик создаст или восстановит служебные листы. Частично созданную структуру можно безопасно запустить повторно.',
     ui.ButtonSet.YES_NO
   );
@@ -222,12 +543,13 @@ function installAttendanceWorkbook() {
 
   if (disciplineResponse.getSelectedButton() !== ui.Button.OK) return;
 
-  const discipline = String(disciplineResponse.getResponseText() || '').trim()
-    || 'Название дисциплины';
+  const discipline =
+    String(disciplineResponse.getResponseText() || '').trim() ||
+    'Название дисциплины';
 
   try {
     const result = installAttendanceWorkbook_(spreadsheet, {
-      discipline,
+      discipline: discipline,
       locale: 'ru'
     });
 
@@ -238,14 +560,15 @@ function installAttendanceWorkbook() {
       'Создано новых листов: ' + result.createdSheets + '.\n' +
       'Версия: ' + result.appVersion + '.\n' +
       'Схема: ' + result.schemaVersion + '.\n\n' +
-      'Теперь заполните «Список группы».',
+      'Теперь заполните «Список группы» и выполните ' +
+      '«Посещаемость → Синхронизировать состав группы».',
       ui.ButtonSet.OK
     );
   } catch (e) {
     ui.alert(
       'Установка остановлена',
       String(e && e.message ? e.message : e) +
-      '\n\nМожно исправить проблему и запустить установщик повторно: ' +
+      '\n\nМожно исправить код и запустить установщик повторно: ' +
       'частичная структура будет пересоздана.',
       ui.ButtonSet.OK
     );
@@ -274,14 +597,24 @@ function installAttendanceWorkbook_(spreadsheet, options) {
   const types = ensureInstallerSheet_(spreadsheet, SHEETS.TYPES, created);
   const settings = ensureInstallerSheet_(spreadsheet, SHEETS.SETTINGS, created);
   const marks = ensureInstallerSheet_(spreadsheet, SHEETS.MARKS, created);
+  const scoreScale = ensureInstallerSheet_(spreadsheet, SHEETS.SCORE_SCALE, created);
 
   runInstallerStep_('Типы занятий', () => setupInstallerLessonTypes_(types));
+  runInstallerStep_('Шкала оценок', () => setupScoreScaleSheet_(scoreScale));
   runInstallerStep_('Список группы', () => setupInstallerStudents_(students));
   runInstallerStep_('Журнал', () =>
     setupInstallerJournal_(journal, String(options.discipline || 'Название дисциплины'))
   );
+
+  /*
+   * У v3 alpha.1 установка остановилась как раз перед заполнением «Занятия».
+   * В alpha.2 базовая структура и data validation разделены на два этапа,
+   * чтобы локализовать ошибку и сделать установку устойчивее.
+   */
   runInstallerStep_('Занятия: структура', () => setupInstallerLessonsBase_(lessons));
-  runInstallerStep_('Настройки', () => setupInstallerSettings_(settings, spreadsheet, options));
+  runInstallerStep_('Настройки', () =>
+    setupInstallerSettings_(settings, spreadsheet, options)
+  );
   runInstallerStep_('Отметки', () => setupInstallerMarks_(marks));
   runInstallerStep_('Занятия: списки выбора', () =>
     applyInstallerLessonValidations_(lessons, types)
@@ -309,14 +642,12 @@ function installAttendanceWorkbook_(spreadsheet, options) {
       'ready',
       'Состояние установки'
     );
-
     setSettingValueInSpreadsheet_(
       spreadsheet,
       'app_version',
       INSTALLER_APP_VERSION,
       'Версия приложения'
     );
-
     setSettingValueInSpreadsheet_(
       spreadsheet,
       'schema_version',
@@ -328,6 +659,8 @@ function installAttendanceWorkbook_(spreadsheet, options) {
     migrateLegacyLessonStatuses_(spreadsheet);
     applyLessonValidationRules_(spreadsheet);
     applyLessonDateFormats_(spreadsheet);
+    ensureScoreScaleSheet_(spreadsheet);
+    applyScoreScaleFormatting_(spreadsheet);
   });
 
   SpreadsheetApp.flush();
@@ -351,15 +684,24 @@ function ensureInstallerSheet_(spreadsheet, name, created) {
 
 function ensureInstallerGrid_(sheet, rows, cols) {
   if (sheet.getMaxRows() < rows) {
-    sheet.insertRowsAfter(sheet.getMaxRows(), rows - sheet.getMaxRows());
+    sheet.insertRowsAfter(
+      sheet.getMaxRows(),
+      rows - sheet.getMaxRows()
+    );
   }
 
   if (sheet.getMaxColumns() < cols) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), cols - sheet.getMaxColumns());
+    sheet.insertColumnsAfter(
+      sheet.getMaxColumns(),
+      cols - sheet.getMaxColumns()
+    );
   }
 
   const range = sheet.getRange(1, 1, rows, cols);
-  if (range.isPartOfMerge()) range.breakApart();
+
+  if (range.isPartOfMerge()) {
+    range.breakApart();
+  }
 
   range
     .clearContent()
@@ -393,6 +735,17 @@ function setupInstallerStudents_(sheet) {
 function setupInstallerJournal_(sheet, discipline) {
   ensureInstallerGrid_(sheet, 300, 5);
 
+  /*
+   * ВАЖНО:
+   * не объединяем A1:E1.
+   * При frozenColumns = 2 объединение, пересекающее границу B|C,
+   * вызывает ошибку Google Sheets:
+   * «Невозможно закрепить столбцы, в которых содержится только часть
+   * объединенных ячеек».
+   *
+   * Заголовок остаётся только в A1, визуально он и так занимает
+   * свободное пространство строки.
+   */
   sheet.getRange('A1:E1')
     .breakApart()
     .clearContent()
@@ -405,17 +758,26 @@ function setupInstallerJournal_(sheet, discipline) {
     .setHorizontalAlignment('left');
 
   sheet.getRange('A2:E2')
-    .setValues([['№', 'ФИО', 'Баллы за посещение', 'Баллы за работу', 'Итого']])
+    .setValues([[
+      '№',
+      'ФИО',
+      'Баллы за посещение',
+      'Баллы за работу',
+      'Итого'
+    ]])
     .setFontWeight('bold')
     .setBackground('#EAEAEA')
     .setHorizontalAlignment('center')
     .setVerticalAlignment('middle')
     .setWrap(true);
 
-  sheet.getRange('A3:E3').clearContent().setBackground('#EAEAEA');
+  sheet.getRange('A3:E3')
+    .clearContent()
+    .setBackground('#EAEAEA');
 
   sheet.setFrozenRows(3);
   sheet.setFrozenColumns(2);
+
   sheet.setColumnWidth(1, 64);
   sheet.setColumnWidth(2, 360);
   sheet.setColumnWidths(3, 3, 145);
@@ -426,9 +788,20 @@ function setupInstallerLessonsBase_(sheet) {
 
   sheet.getRange(1, 1, 1, 14)
     .setValues([[
-      'ID занятия', 'Дата', 'Формат', 'Тип занятия', '№ по типу', 'Тема',
-      'Статус', 'Начало', 'Завершение', 'Колонка Пос.', 'Колонка Оц.',
-      'Проверок', 'Заметка', 'Создано'
+      'ID занятия',
+      'Дата',
+      'Формат',
+      'Тип занятия',
+      '№ по типу',
+      'Тема',
+      'Статус',
+      'Начало',
+      'Завершение',
+      'Колонка Пос.',
+      'Колонка Оц.',
+      'Проверок',
+      'Заметка',
+      'Создано'
     ]])
     .setFontWeight('bold')
     .setBackground('#EAEAEA')
@@ -459,11 +832,14 @@ function setupInstallerLessonsBase_(sheet) {
   sheet.getRange(2, LESSON_COL.DATE, sheet.getMaxRows() - 1, 1)
     .setNumberFormat('dd.MM.yyyy');
 
-  [LESSON_COL.STARTED, LESSON_COL.ENDED, LESSON_COL.CREATED]
-    .forEach(col => {
-      sheet.getRange(2, col, sheet.getMaxRows() - 1, 1)
-        .setNumberFormat('dd.MM.yyyy HH:mm:ss');
-    });
+  [
+    LESSON_COL.STARTED,
+    LESSON_COL.ENDED,
+    LESSON_COL.CREATED
+  ].forEach(col => {
+    sheet.getRange(2, col, sheet.getMaxRows() - 1, 1)
+      .setNumberFormat('dd.MM.yyyy HH:mm:ss');
+  });
 }
 
 function applyInstallerLessonValidations_(sheet, typesSheet) {
@@ -484,9 +860,14 @@ function applyInstallerLessonValidations_(sheet, typesSheet) {
 
   const rows = Math.max(sheet.getMaxRows() - 1, 1);
 
-  sheet.getRange(2, LESSON_COL.MODE, rows, 1).setDataValidation(modeRule);
-  sheet.getRange(2, LESSON_COL.TYPE, rows, 1).setDataValidation(typeRule);
-  sheet.getRange(2, LESSON_COL.STATUS, rows, 1).setDataValidation(statusRule);
+  sheet.getRange(2, LESSON_COL.MODE, rows, 1)
+    .setDataValidation(modeRule);
+
+  sheet.getRange(2, LESSON_COL.TYPE, rows, 1)
+    .setDataValidation(typeRule);
+
+  sheet.getRange(2, LESSON_COL.STATUS, rows, 1)
+    .setDataValidation(statusRule);
 }
 
 function setupInstallerLessonTypes_(sheet) {
@@ -505,7 +886,8 @@ function setupInstallerLessonTypes_(sheet) {
     ['Другое', '#EDEDED', false, true]
   ];
 
-  sheet.getRange(2, 1, defaults.length, 4).setValues(defaults);
+  sheet.getRange(2, 1, defaults.length, 4)
+    .setValues(defaults);
 
   const checkboxRule = SpreadsheetApp.newDataValidation()
     .requireCheckbox()
@@ -516,7 +898,8 @@ function setupInstallerLessonTypes_(sheet) {
     .setDataValidation(checkboxRule);
 
   defaults.forEach((row, idx) => {
-    sheet.getRange(idx + 2, 1, 1, 2).setBackground(row[1]);
+    sheet.getRange(idx + 2, 1, 1, 2)
+      .setBackground(row[1]);
   });
 
   sheet.setFrozenRows(1);
@@ -565,7 +948,9 @@ function setupInstallerSettings_(sheet, spreadsheet, options) {
     ['instance_spreadsheet_id', spreadsheet.getId(), 'ID экземпляра таблицы']
   ];
 
-  sheet.getRange(2, 1, rows.length, 3).setValues(rows);
+  sheet.getRange(2, 1, rows.length, 3)
+    .setValues(rows);
+
   sheet.setFrozenRows(1);
   sheet.setColumnWidth(1, 250);
   sheet.setColumnWidth(2, 430);
@@ -577,15 +962,27 @@ function setupInstallerMarks_(sheet) {
 
   sheet.getRange(1, 1, 1, 12)
     .setValues([[
-      'mark_id', 'lesson_id', 'student_no', 'student_name', 'check_type',
-      'code_cycle', 'submitted_at', 'attendance_points', 'status',
-      'client_token', 'source', 'notes'
+      'mark_id',
+      'lesson_id',
+      'student_no',
+      'student_name',
+      'check_type',
+      'code_cycle',
+      'submitted_at',
+      'attendance_points',
+      'status',
+      'client_token',
+      'source',
+      'notes'
     ]])
     .setFontWeight('bold')
     .setBackground('#EAEAEA');
 
   sheet.setFrozenRows(1);
-  if (!sheet.isSheetHidden()) sheet.hideSheet();
+
+  if (!sheet.isSheetHidden()) {
+    sheet.hideSheet();
+  }
 }
 
 function cleanupInstallerBlankSheets_(spreadsheet) {
@@ -595,7 +992,8 @@ function cleanupInstallerBlankSheets_(spreadsheet) {
     SHEETS.LESSONS,
     SHEETS.TYPES,
     SHEETS.SETTINGS,
-    SHEETS.MARKS
+    SHEETS.MARKS,
+    SHEETS.SCORE_SCALE
   ]);
 
   spreadsheet.getSheets().slice().forEach(sh => {
@@ -607,7 +1005,9 @@ function cleanupInstallerBlankSheets_(spreadsheet) {
       sh.getLastColumn() <= 1 &&
       sh.getRange('A1').getValue() === '';
 
-    if (isBlank) spreadsheet.deleteSheet(sh);
+    if (isBlank) {
+      spreadsheet.deleteSheet(sh);
+    }
   });
 }
 
@@ -630,31 +1030,65 @@ function diagnoseAttendanceInstallation() {
   const health = getInstallationHealth_(spreadsheet);
   const lines = [];
 
-  lines.push(health.missing.length ? 'Структура: ПРОБЛЕМА' : 'Структура: OK');
+  lines.push(
+    health.missing.length
+      ? 'Структура: ПРОБЛЕМА'
+      : 'Структура: OK'
+  );
 
   if (health.missing.length) {
-    lines.push('Не хватает листов: ' + health.missing.join(', '));
+    lines.push(
+      'Не хватает листов: ' +
+      health.missing.join(', ')
+    );
   }
 
-  lines.push('Код: ' + INSTALLER_APP_VERSION);
-  lines.push('Записанная версия: ' + (health.storedVersion || 'не задана'));
+  lines.push(
+    'Код: ' +
+    INSTALLER_APP_VERSION
+  );
+
+  lines.push(
+    'Записанная версия: ' +
+    (health.storedVersion || 'не задана')
+  );
+
   lines.push(
     'Схема данных: ' +
     (health.storedSchema || 'не задана') +
     ' / ожидается ' +
     INSTALLER_SCHEMA_VERSION
   );
-  lines.push('Состояние установки: ' + (health.installStatus || 'не задано'));
-  lines.push('Web App URL: ' + (health.webAppConfigured ? 'настроен' : 'не настроен'));
+
+  lines.push(
+    'Состояние установки: ' +
+    (health.installStatus || 'не задано')
+  );
+
+  lines.push(
+    'Web App URL: ' +
+    (health.webAppConfigured
+      ? 'настроен'
+      : 'не настроен')
+  );
+
   lines.push('');
   lines.push(
-    'Студентов: ' + health.students +
-    ' (активных: ' + health.activeStudents + ')'
+    'Студентов: ' +
+    health.students +
+    ' (активных: ' +
+    health.activeStudents +
+    ')'
   );
+
   lines.push(
-    'Занятий: ' + health.lessons +
-    ' (активных: ' + health.activeLessons + ')'
+    'Занятий: ' +
+    health.lessons +
+    ' (активных: ' +
+    health.activeLessons +
+    ')'
   );
+
   lines.push('');
   lines.push(
     health.missing.length ||
