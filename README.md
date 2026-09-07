@@ -31,16 +31,30 @@ The journal is treated as a generated view. Source data lives in:
 
 The `Журнал` sheet should not be structurally edited by hand. Attendance (`Пос.`) and grades (`Оц.`) may be corrected manually when needed.
 
-## Apps Script files
+## Apps Script source
+
+The tested v2.7 project originally used one large `Code.gs`. In this repository that file is split at top-level boundaries into smaller Apps Script modules for easier maintenance. Google Apps Script loads all `.gs` files into the same project namespace, so no imports are required.
 
 ```text
 apps-script/
-├── Code.gs
+├── Core.gs
+├── Settings.gs
+├── Types.gs
+├── Students.gs
+├── Journal.gs
+├── Events.gs
+├── Lesson.gs
+├── Codes.gs
+├── Attendance.gs
+├── Interfaces.gs
+├── Utils.gs
 ├── Sidebar.html
 ├── Student.html
 ├── Display.html
 └── Teacher.html
 ```
+
+The `.gs` modules are an exact split of the tested v2.7 `Code.gs`; their concatenation in the order above reproduces the original source.
 
 ## Installation
 
