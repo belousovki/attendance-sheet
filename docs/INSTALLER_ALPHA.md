@@ -1,26 +1,29 @@
-# Installer variant — v3 alpha
+# Installer Edition — v3 alpha.6
 
-This branch experiments with a second distribution model while keeping the stable template workflow intact.
+This branch contains the tested installer distribution model for Attendance Sheet while keeping the stable v2.7 template workflow on `main`.
 
-## Two variants
+## End-user model
 
-### Variant A — ready Google Sheets template
+The teacher does **not** need GitHub, `clasp`, a terminal, or manual Apps Script file creation.
 
-This is the current stable workflow on `main`.
+The canonical Installer Template is a Google Sheet with the complete bound Apps Script project already attached. The visible workbook itself is intentionally minimal.
 
-The user makes a copy of a fully prepared spreadsheet. The copy already contains all sheets, formatting and the bound Apps Script project.
+User flow:
 
-Advantages:
+1. Make a copy of the Installer Template.
+2. Open the copy and reload it if necessary.
+3. Choose `Посещаемость → Установить / восстановить журнал…`.
+4. Enter the discipline name.
+5. Grant Google permissions when requested.
+6. Fill `Список группы`.
+7. Start lessons from `Посещаемость → Начать занятие…` or from the teacher control page.
+8. Deploy the bound Apps Script project as a Web App.
+9. Copy the exact production URL ending in `/exec`.
+10. Save it through `Посещаемость → Настроить URL веб-приложения`.
 
-- simplest for most teachers;
-- almost no setup;
-- easy to explain and support.
+The installer can be rerun after an interrupted installation and reconstructs a partially created workbook.
 
-### Variant B — installer / loader
-
-The spreadsheet starts essentially blank, but the bound Apps Script project contains the application code plus `Installer.gs`.
-
-The installer creates the workbook structure automatically:
+## Workbook created by the installer
 
 - `Список группы`;
 - `Журнал`;
@@ -28,41 +31,96 @@ The installer creates the workbook structure automatically:
 - `Типы занятий`;
 - `Настройки`;
 - hidden technical sheet `Отметки`;
-- headers, widths, checkboxes and dropdown validation;
+- headers, widths, frozen rows/columns, checkboxes and dropdown validation;
 - default lesson types and colors;
 - default settings;
 - `teacher_key` and instance identifiers;
-- `app_version` and `schema_version`.
+- version markers.
 
-## Alpha test procedure
+## Bootstrap behavior
 
-At this first stage the installer is intentionally isolated from the stable `onOpen()` logic.
+`onOpen()` checks whether the workbook is installed.
 
-1. Create a blank Google Sheet.
-2. Attach the Apps Script project from this branch (for development, `clasp` is the intended route).
-3. In Apps Script run `installAttendanceWorkbook()` once.
-4. Grant permissions when Google asks.
-5. Return to the spreadsheet and reload it.
-6. The normal `Посещаемость` menu should now work.
-7. Fill `Список группы` and synchronize students.
-8. Deploy the Apps Script project as a Web App.
-9. Paste the exact `/exec` URL through `Посещаемость → Настроить URL веб-приложения`.
+If the schema is missing or incomplete, the menu contains only installer-oriented commands:
 
-## Why the first run is manual in alpha
+- `Установить / восстановить журнал…`;
+- `Диагностика установки`.
 
-The stable v2.7 `onOpen()` assumes that the workbook structure already exists. Calling it in a completely blank spreadsheet would fail before the installer can run.
+After successful installation the normal attendance menu is shown.
 
-The next installer iteration should change the bootstrap behavior so that `onOpen()` detects a missing schema and shows only an `Установить журнал…` command. That change is intentionally not being made on `main` until the installer is tested independently.
+## Tested alpha.6 workflow
 
-## Diagnostics
+The alpha.6 integration test covered:
 
-Run `diagnoseAttendanceInstallation()` to check the required sheets and version markers.
+- installation from a blank spreadsheet;
+- recovery after a partially failed installation;
+- automatic student synchronization;
+- creating a lesson from the spreadsheet menu;
+- creating a lesson from the teacher control page;
+- creation of `Пос.` / `Оц.` columns in the generated journal;
+- regular attendance codes;
+- late-attendance codes;
+- regular and late codes on the classroom display;
+- student attendance submission;
+- configurable late points;
+- automatic absence points on lesson finish;
+- technical attendance history in `Отметки`;
+- safe lesson deletion;
+- version/schema diagnostics.
+
+## Status model
+
+Lesson status values are standardized as:
+
+- `active`;
+- `closed`.
+
+Legacy `finished` values are migrated to `closed`.
+
+## Date/time formats
+
+The installer applies:
+
+- `Дата` → `dd.MM.yyyy`;
+- `Начало` → `dd.MM.yyyy HH:mm:ss`;
+- `Завершение` → `dd.MM.yyyy HH:mm:ss`;
+- `Создано` → `dd.MM.yyyy HH:mm:ss`.
 
 ## Version markers
 
-The installer writes:
+Current alpha writes and synchronizes:
 
-- `app_version = 3.0.0-alpha.1`
-- `schema_version = 3`
+- `app_version = 3.0.0-alpha.6`;
+- `code_version = 3.0.0-alpha.6`;
+- `schema_version = 3`;
+- `install_status = ready`.
 
-These markers are the basis for future migration functions such as `migrateSchema3To4_()`.
+`code_version` identifies the installed application code. `schema_version` is intentionally separate so future schema migrations can be introduced without conflating them with ordinary code releases.
+
+## Diagnostics
+
+Use:
+
+`Посещаемость → Диагностика установки`
+
+The diagnostic reports:
+
+- required sheet structure;
+- current code version;
+- stored application version;
+- expected and stored schema version;
+- installation state;
+- whether Web App URL is configured;
+- student count and active-student count;
+- lesson count and active-lesson count;
+- final health status.
+
+## Maintainer workflow
+
+The modular source lives in `apps-script/`.
+
+`clasp` may be used by maintainers to synchronize the repository with the canonical Apps Script project. This is a development workflow only; it must not be exposed as an installation requirement to teachers.
+
+## Alpha status
+
+v3.0.0-alpha.6 is the first installer build that completed the full live integration workflow. The branch remains alpha until the canonical Installer Template has been copied and tested as a fresh end-user instance.
