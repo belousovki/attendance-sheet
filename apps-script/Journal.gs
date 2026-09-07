@@ -370,6 +370,7 @@ function rebuildJournalFromRegistryInSpreadsheet_(spreadsheet) {
   recomputeAllTotalsInSpreadsheet_(spreadsheet);
   clearPhantomJournalTotals_(spreadsheet);
   updateJournalTitleInSpreadsheet_(spreadsheet);
+  applyScoreScaleFormatting_(spreadsheet);
 
   const active =
     getActiveLesson_();
@@ -725,10 +726,13 @@ function prepareBlankTemplateFromMenu() {
   setSettingValueInSpreadsheet_(spreadsheet, 'sheet_url', spreadsheet.getUrl(),
     'Прямая ссылка на этот журнал; обновляется автоматически');
 
+  ensureScoreScaleSheet_(spreadsheet);
+  setupScoreScaleSheet_(
+    spreadsheet.getSheetByName(SHEETS.SCORE_SCALE)
+  );
   rebuildJournalFromRegistryInSpreadsheet_(spreadsheet);
 
   ui.alert(
     'Готово. Это чистый шаблон. Теперь его можно копировать для новой дисциплины.'
   );
 }
-
