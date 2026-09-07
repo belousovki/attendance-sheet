@@ -21,11 +21,38 @@ The recommended workflow is based on a prepared Google Sheets template with the 
 
 The application will generate the student, display and teacher URLs.
 
+## Apps Script source files
+
+The GitHub version is modularized. Add all `.gs` files from `apps-script/` to the same Apps Script project:
+
+- `Core.gs`
+- `Settings.gs`
+- `Types.gs`
+- `Students.gs`
+- `Journal.gs`
+- `Events.gs`
+- `Lesson.gs`
+- `Codes.gs`
+- `Attendance.gs`
+- `Interfaces.gs`
+- `Utils.gs`
+
+Also add the HTML files:
+
+- `Sidebar.html`
+- `Student.html`
+- `Display.html`
+- `Teacher.html`
+
+Google Apps Script shares one global namespace across `.gs` files, so these modules do not need imports. They are an exact split of the tested v2.7 monolithic `Code.gs`.
+
+If you already have the tested single-file `Code.gs` in a working template, you do **not** need to replace it with the modular layout merely to use the application. The split is primarily for repository maintenance and future development.
+
 ## Updating an existing deployment
 
 When only the code changes:
 
-1. Replace the Apps Script source files.
+1. Update the Apps Script source files.
 2. Open `Развернуть → Управление развертываниями`.
 3. Edit the existing deployment.
 4. Select **Новая версия**.
@@ -38,12 +65,4 @@ This normally preserves the existing `/exec` URL.
 Do not use `ScriptApp.getService().getUrl()` as the authoritative production deployment URL.
 The exact `/exec` URL should be copied from the active Apps Script deployment and stored explicitly in `web_app_url`.
 
-## Files
-
-Copy these files into the bound Apps Script project:
-
-- `Code.gs`
-- `Sidebar.html`
-- `Student.html`
-- `Display.html`
-- `Teacher.html`
+Never commit working-course secrets or data to the repository: real student lists, grades, `teacher_key`, deployment URLs or course-specific short links.
