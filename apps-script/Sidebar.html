@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top"><meta charset="utf-8">
+  <style>
+    body{font-family:Arial,sans-serif;margin:14px;color:#202124}h2{margin:0 0 12px;font-size:18px}
+    label{display:block;font-size:12px;margin:10px 0 4px;color:#5f6368}
+    select,input,textarea,button{width:100%;box-sizing:border-box;padding:9px;font-size:14px;font-family:inherit}
+    textarea{min-height:58px;resize:vertical}button{margin-top:8px;cursor:pointer}.primary{font-weight:700}.danger{margin-top:16px}
+    .card{margin-top:12px;padding:10px;border:1px solid #dadce0;border-radius:8px}.code{font-size:30px;font-weight:700;letter-spacing:3px;text-align:center;margin:8px 0}
+    .muted{color:#5f6368;font-size:12px}.status{font-size:13px;line-height:1.45}.links{display:flex;gap:6px}.links button{flex:1}
+  </style>
+</head>
+<body>
+  <h2 id="appTitle">Посещаемость</h2>
+  <div id="setup">
+    <label>Формат занятия</label><select id="mode"><option>Очно</option><option>Дистанционно</option></select>
+    <label>Тип занятия</label><select id="lessonType"></select>
+    <label>Тема (необязательно)</label><input id="topic" type="text" placeholder="Например: Полисемия и структура ЛСВ">
+    <label>Заметка (необязательно)</label><textarea id="notes" placeholder="Перенос, технический сбой, что не успели пройти…"></textarea>
+    <button class="primary" onclick="startLesson()">НАЧАТЬ ЗАНЯТИЕ</button>
+    <button onclick="syncStudents()">СИНХРОНИЗИРОВАТЬ СОСТАВ</button>
+  </div>
+  <div id="active" style="display:none">
+    <div class="card status" id="lessonInfo"></div>
+    <button id="regularBtn" class="primary" onclick="startCheck('regular')">ПРОВЕРИТЬ ПРИСУТСТВИЕ</button>
+    <button id="lateBtn" onclick="startCheck('late')">КОД ДЛЯ ОПОЗДАВШЕГО</button>
+    <div class="card" id="codeCard" style="display:none"><div class="muted" id="checkLabel"></div><div class="code" id="code">—</div><div style="text-align:center" id="timer"></div><div class="muted" style="text-align:center" id="cycle"></div><button class="danger" onclick="stopCheck()">ОСТАНОВИТЬ ГЕНЕРАЦИЮ КОДОВ</button></div>
+    <div class="card status">Отметились: <b id="marked">0</b> / <span id="total">0</span></div>
+    <div class="links"><button onclick="openDisplay()">Экран кода</button><button onclick="openStudent()">Страница студента</button></div>
+    <button onclick="syncStudents()">СИНХРОНИЗИРОВАТЬ СОСТАВ</button>
+    <button class="danger" onclick="finishLesson()">ЗАВЕРШИТЬ ЗАНЯТИЕ</button>
+  </div>
+  <button onclick="openTeacher()">ПУЛЬТ НА ТЕЛЕФОНЕ</button><p class="muted" id="msg"></p>
+<script>
+const TEACHER_KEY = <?!= JSON.stringify(teacherKey) ?>;
+let currentState=null;
+function message(t){document.getElementById('msg').textContent=t||''}
+function setBusy(v){['regularBtn','lateBtn'].forEach(id=>{const x=document.getElementById(id);if(x)x.disabled=!!v})}
+function refresh(){google.script.run.withSuccessHandler(render).withFailureHandler(e=>message(e.message||String(e))).teacherGetState(TEACHER_KEY)}
+function fillTypes(types){const sel=document.getElementById('lessonType');const old=sel.value;sel.innerHTML='';(types||[]).forEach(t=>{const o=document.createElement('option');o.value=t.name;o.textContent=t.name;sel.appendChild(o)});if(old&&[...sel.options].some(o=>o.value===old))sel.value=old}
+function lessonLabel(l){if(!l)return'';let s='<b>'+l.dateDisplay+'</b><br>'+(l.lessonType||'');if(l.typeNumber!==''&&l.typeNumber!=null)s+=' №'+l.typeNumber;s+='<br>'+l.mode;if(l.topic)s+='<br><span class="muted">'+escapeHtml(l.topic)+'</span>';return s}
+function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function render(s){currentState=s||{};document.getElementById('appTitle').textContent=(s.discipline||'Дисциплина')+' — посещаемость';fillTypes(s.lessonTypes||[]);const has=!!s.lesson;document.getElementById('setup').style.display=has?'none':'block';document.getElementById('active').style.display=has?'block':'none';if(!has){document.getElementById('codeCard').style.display='none';return}document.getElementById('lessonInfo').innerHTML=lessonLabel(s.lesson);document.getElementById('marked').textContent=s.marked;document.getElementById('total').textContent=s.total;const c=s.check||{};const card=document.getElementById('codeCard');if(c.active){card.style.display='block';document.getElementById('checkLabel').textContent=c.kind==='late'?'Код для опоздавшего':'Проверка присутствия';document.getElementById('code').textContent=c.code;document.getElementById('cycle').textContent='Код №'+c.cycle+' · смена каждые '+c.seconds+' сек.';updateTimer(c.expiresAt)}else card.style.display='none'}
+function updateTimer(x){document.getElementById('timer').textContent='Осталось: '+Math.max(0,Math.ceil((Number(x)-Date.now())/1000))+' сек.'}
+function startLesson(){message('');google.script.run.withSuccessHandler(r=>{message(r.message);render(r.state||{})}).withFailureHandler(e=>message(e.message||String(e))).teacherStartLesson(TEACHER_KEY,{mode:document.getElementById('mode').value,lessonType:document.getElementById('lessonType').value,topic:document.getElementById('topic').value,notes:document.getElementById('notes').value})}
+function startCheck(kind){message('Команда отправлена. Запускаю генерацию…');setBusy(true);google.script.run.withSuccessHandler(r=>{setBusy(false);message(r.message);render(r.state||{})}).withFailureHandler(e=>{setBusy(false);message(e.message||String(e))}).teacherStartCheck(TEACHER_KEY,kind)}
+function stopCheck(){google.script.run.withSuccessHandler(r=>{message('Генерация остановлена.');render(r.state||{})}).withFailureHandler(e=>message(e.message||String(e))).teacherStopCheck(TEACHER_KEY)}
+function finishLesson(){const auto=currentState&&currentState.autoAbsentOnFinish;const p=currentState?currentState.absentPoints:0;const text=auto?'Завершить занятие? Активным студентам без отметки будет записано '+p+'.':'Завершить занятие? Пустые отметки останутся пустыми.';if(!confirm(text))return;google.script.run.withSuccessHandler(r=>{message(r.message);refresh()}).withFailureHandler(e=>message(e.message||String(e))).teacherFinishLesson(TEACHER_KEY)}
+function syncStudents(){google.script.run.withSuccessHandler(r=>{message(r.message);render(r.state||currentState||{})}).withFailureHandler(e=>message(e.message||String(e))).teacherSyncStudents(TEACHER_KEY)}
+function openDisplay(){const u=currentState&&currentState.links&&currentState.links.displayUrl;if(u)window.open(u,'_blank');else message('Сначала разверните веб-приложение.')}
+function openStudent(){const u=currentState&&currentState.links&&currentState.links.studentUrl;if(u)window.open(u,'_blank');else message('Сначала разверните веб-приложение.')}
+function openTeacher(){const u=currentState&&currentState.links&&currentState.links.teacherUrl;if(u)window.open(u,'_blank');else message('Сначала разверните веб-приложение.')}
+setInterval(()=>{if(currentState&&currentState.check&&currentState.check.active)updateTimer(currentState.check.expiresAt)},250);setInterval(refresh,5000);refresh();
+</script></body></html>
