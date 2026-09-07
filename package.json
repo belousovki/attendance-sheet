@@ -1,9 +1,10 @@
 {
   "name": "attendance-sheet",
-  "version": "3.0.0-alpha.8",
+  "version": "3.0.0-alpha.9",
   "private": true,
   "description": "Google Sheets attendance journal with tested Apps Script Installer Edition alpha",
   "scripts": {
+    "test": "node tests/alpha9_safety.test.js",
     "clasp:login": "clasp login",
     "clasp:status": "clasp show-file-status",
     "clasp:pull": "clasp pull",
