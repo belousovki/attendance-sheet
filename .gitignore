@@ -1,0 +1,13 @@
+# Local files
+.DS_Store
+Thumbs.db
+
+# clasp / local secrets
+.clasp.json
+.clasprc.json
+.env
+.env.*
+
+# Editor
+.vscode/
+.idea/
