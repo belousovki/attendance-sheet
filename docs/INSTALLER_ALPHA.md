@@ -1,4 +1,4 @@
-# Installer Edition — v3 alpha.6
+# Installer Edition — v3 alpha.8
 
 This branch contains the tested installer distribution model for Attendance Sheet while keeping the stable v2.7 template workflow on `main`.
 
@@ -31,6 +31,7 @@ The installer can be rerun after an interrupted installation and reconstructs a 
 - `Типы занятий`;
 - `Настройки`;
 - hidden technical sheet `Отметки`;
+- `Шкала оценок` — editable universal score-to-color mapping;
 - headers, widths, frozen rows/columns, checkboxes and dropdown validation;
 - default lesson types and colors;
 - default settings;
@@ -48,9 +49,9 @@ If the schema is missing or incomplete, the menu contains only installer-oriente
 
 After successful installation the normal attendance menu is shown.
 
-## Tested alpha.6 workflow
+## Tested alpha.8 workflow
 
-The alpha.6 integration test covered:
+The alpha.8 integration test covered:
 
 - installation from a blank spreadsheet;
 - recovery after a partially failed installation;
@@ -66,7 +67,31 @@ The alpha.6 integration test covered:
 - automatic absence points on lesson finish;
 - technical attendance history in `Отметки`;
 - safe lesson deletion;
-- version/schema diagnostics.
+- version/schema diagnostics;
+- creation and editing of the universal score scale;
+- immediate color formatting for newly created lesson columns.
+
+## Universal score scale
+
+Installer alpha.8 adds the editable `Шкала оценок` sheet. It defines one fixed visual language for all `Пос.` and `Оц.` cells, independent of the lesson column:
+
+| From | To | Default meaning |
+| ---: | ---: | --- |
+| 0 | 0 | blue |
+| 1 | 2 | green |
+| 3 | 4 | light green |
+| 5 | 5 | yellow |
+| 6 | 7 | yellow-orange |
+| 8 | 9 | orange |
+| 10 | blank | red (`10+`) |
+
+Each row also contains a HEX color, human-readable description and `Активен` checkbox.
+
+The same score therefore has the same color everywhere in the journal. Summary columns (`Баллы за посещение`, `Баллы за работу`, `Итого`) are intentionally excluded because they are cumulative values and are not directly comparable with a single lesson score.
+
+Changing the scale rebuilds the journal conditional-formatting rules. Starting a lesson, rebuilding the journal and reopening the workbook also resynchronize the score formatting.
+
+alpha.8 fixes an alpha.7 ordering bug where the formatting rules were requested before the newly created lesson had been written to the `Занятия` registry.
 
 ## Status model
 
@@ -90,8 +115,8 @@ The installer applies:
 
 Current alpha writes and synchronizes:
 
-- `app_version = 3.0.0-alpha.6`;
-- `code_version = 3.0.0-alpha.6`;
+- `app_version = 3.0.0-alpha.8`;
+- `code_version = 3.0.0-alpha.8`;
 - `schema_version = 3`;
 - `install_status = ready`.
 
@@ -123,4 +148,4 @@ The modular source lives in `apps-script/`.
 
 ## Alpha status
 
-v3.0.0-alpha.6 is the first installer build that completed the full live integration workflow. The branch remains alpha until the canonical Installer Template has been copied and tested as a fresh end-user instance.
+v3.0.0-alpha.8 is the current Installer Edition candidate. The canonical Installer Template was copied and tested as a fresh end-user instance, including the score-scale workflow. The branch remains alpha until it has been used in a small number of real teaching sessions.
