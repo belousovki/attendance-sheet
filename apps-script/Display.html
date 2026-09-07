@@ -110,7 +110,7 @@
       id="active"
       style="display:none"
     >
-      <div>
+      <div id="check-mode">
         ПРОВЕРКА ПРИСУТСТВИЯ
       </div>
 
@@ -199,16 +199,20 @@ function render(s) {
 
   if (!check.active) return;
 
+  document.getElementById('check-mode')
+    .textContent =
+      check.kind === 'late'
+        ? 'КОД ДЛЯ ОПОЗДАВШИХ'
+        : 'ПРОВЕРКА ПРИСУТСТВИЯ';
+
   document.getElementById('code')
     .textContent =
       check.code;
 
   document.getElementById('cycle')
     .textContent =
-      'Код ' +
-      check.cycle +
-      ' из ' +
-      check.totalCycles;
+      'Смена кода №' +
+      check.cycle;
 
   document.getElementById('count')
     .textContent =

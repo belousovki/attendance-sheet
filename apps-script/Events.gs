@@ -70,6 +70,40 @@ function onEdit(e) {
     return;
   }
 
+  if (name === SHEETS.SCORE_SCALE && row >= 2) {
+    const minCell = sh.getRange(row, 1);
+    const maxCell = sh.getRange(row, 2);
+    const colorCell = sh.getRange(row, 3);
+    const activeCell = sh.getRange(row, 5);
+
+    const min = minCell.getValue();
+    const max = maxCell.getValue();
+    const color = String(colorCell.getValue() || '').trim();
+
+    if (min !== '' && activeCell.getValue() === '') {
+      activeCell.setValue(true);
+    }
+
+    if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      colorCell.setBackground(color);
+    }
+
+    if (
+      min !== '' &&
+      max !== '' &&
+      Number.isFinite(Number(min)) &&
+      Number.isFinite(Number(max)) &&
+      Number(max) < Number(min)
+    ) {
+      maxCell.setNote('Значение «До» меньше значения «От».');
+    } else {
+      maxCell.clearNote();
+    }
+
+    applyScoreScaleFormatting_(e.source);
+    return;
+  }
+
   if (name === SHEETS.SETTINGS && row >= 2) {
     const key = String(sh.getRange(row, 1).getValue() || '').trim();
     if (key === 'discipline') updateJournalTitleInSpreadsheet_(e.source);
@@ -141,4 +175,3 @@ function teacherSyncStudents(key) {
     state: getTeacherState_()
   };
 }
-

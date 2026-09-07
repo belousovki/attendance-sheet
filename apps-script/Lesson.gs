@@ -68,6 +68,14 @@ function startLesson_(meta) {
       now
     ]);
 
+    /*
+     * alpha.8:
+     * Шкала оценок строится только после записи занятия в реестр.
+     * Иначе getLessonScoreRanges_() ещё не знает номера новых
+     * колонок Пос./Оц. и условные правила не создаются.
+     */
+    applyScoreScaleFormatting_(ss_());
+
     const lesson = {
       lessonId,
       dateIso,
@@ -247,4 +255,3 @@ function findLessonRow_(lessonId) {
   const idx = ids.indexOf(String(lessonId));
   return idx >= 0 ? idx + 2 : null;
 }
-

@@ -43,12 +43,13 @@ function getTeacherState_() {
 
 function getDisplayState() {
   const lesson = getActiveLesson_();
-  const current = getCheckState_();
-  const check = current && current.active && current.kind === 'regular'
-    ? current
-    : { active: false };
+  const check = getCheckState_();
   const links = getAppLinks_();
 
+  /*
+   * Display показывает любую активную проверку:
+   * regular и late.
+   */
   return {
     discipline: String(getSettings_().discipline || 'Дисциплина'),
     lesson,
@@ -58,4 +59,3 @@ function getDisplayState() {
     links: { studentUrl: links.studentUrl }
   };
 }
-

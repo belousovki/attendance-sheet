@@ -1,5 +1,41 @@
 # Changelog
 
+## v3.0.0-alpha.9 — Safety hardening
+
+- normal install/recovery no longer clears existing students, lessons, grades, settings or attendance history;
+- added `Восстановить структуру журнала…` as a non-destructive repair operation;
+- added separate `Полный сброс журнала…` with typed `СБРОС` confirmation;
+- full reset creates a Google Drive backup before destructive changes;
+- installer cleanup now removes only the known blank `Установщик` bootstrap sheet with the expected shape;
+- added `ScriptLock` around attendance write critical section with a second duplicate check under the lock;
+- added direct `/copy` entry point for the canonical Installer Template;
+- documented color semantics as score intensity: cold colors for low values, warm/hot colors for high values; the actual scale remains unchanged;
+- added automated source-level safety tests and JavaScript syntax checks.
+
+## v3.0.0-alpha.8 — Installer Edition
+
+- added editable `Шкала оценок` with a fixed universal score-to-color mapping;
+- default visual scale: `0` blue, `1–2` green, `3–4` light green, `5` yellow, `6–7` yellow-orange, `8–9` orange, `10+` red;
+- applies the same color semantics to all lesson `Пос.` / `Оц.` cells;
+- summary columns are excluded from the score scale;
+- score-scale edits automatically rebuild conditional formatting;
+- journal rebuilds and new lessons resynchronize score formatting;
+- fixed alpha.7 ordering bug: formatting is now applied only after the new lesson is written to the lesson registry;
+- canonical Installer Template and a fresh copied instance were smoke-tested successfully.
+
+## v3.0.0-alpha.6 — Installer Edition
+
+- completed live installer workflow from a blank Google Sheet;
+- installer can recover from a partially created workbook;
+- bootstrap `onOpen()` exposes installer commands before the schema exists;
+- added menu-based lesson creation without requiring the Web App;
+- classroom display now shows both regular and late-attendance codes;
+- standardized lesson statuses as `active / closed`;
+- added code/application/schema version markers;
+- added date/time formatting for the lesson registry;
+- expanded installation diagnostics;
+- verified student page, display page, teacher control page, regular/late attendance, automatic absences and safe lesson deletion end-to-end.
+
 ## v2.7
 
 - delete a lesson directly from the selected `Пос.` / `Оц.` journal column;
