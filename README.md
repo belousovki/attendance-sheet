@@ -27,7 +27,7 @@ This remains the recommended stable option until v3 leaves alpha.
 
 ### 2. Installer Edition — v3 alpha
 
-The `installer-v3-alpha` branch now contains the tested **v3.0.0-alpha.6** installer workflow.
+The `installer-v3-alpha` branch now contains the tested **v3.0.0-alpha.8** installer workflow.
 
 The canonical Installer Template is intentionally almost blank. Its bound Apps Script project contains the whole application. After making a copy, the teacher opens the spreadsheet and chooses:
 
@@ -47,6 +47,7 @@ The journal is treated as a generated view. Source data lives in:
 - `Занятия` — lesson registry;
 - `Типы занятий` — lesson types and colors;
 - `Настройки` — configuration;
+- `Шкала оценок` — universal fixed color scale for lesson scores;
 - `Отметки` — technical attendance history.
 
 The `Журнал` sheet should not be structurally edited by hand. Attendance (`Пос.`) and grades (`Оц.`) may be corrected manually when needed.
@@ -68,7 +69,7 @@ apps-script/
 ├── Attendance.gs
 ├── Interfaces.gs
 ├── Utils.gs
-├── Installer.gs
+├── Installer.gs          # installer + score-scale configuration
 ├── Sidebar.html
 ├── Student.html
 ├── Display.html
