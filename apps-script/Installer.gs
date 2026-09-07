@@ -381,7 +381,9 @@ function recoverAttendanceWorkbookFromMenu() {
     getSettingValueInSpreadsheet_(spreadsheet, 'discipline') || 'Название дисциплины'
   ).trim() || 'Название дисциплины';
 
+  let backup;
   try {
+    backup = createAttendanceBackup_(spreadsheet, 'перед восстановлением структуры');
     const result = repairAttendanceWorkbook_(spreadsheet, {
       discipline,
       locale: String(getSettingValueInSpreadsheet_(spreadsheet, 'locale') || 'ru')
@@ -391,14 +393,17 @@ function recoverAttendanceWorkbookFromMenu() {
       'Восстановление завершено',
       'Создано недостающих листов: ' + result.createdSheets + '.\n' +
       'Учебные данные сохранены.\n' +
-      'Версия: ' + result.appVersion + '.',
+      'Версия: ' + result.appVersion + '.\n\n' +
+      'Резервная копия перед восстановлением:\n' + backup.url,
       ui.ButtonSet.OK
     );
     return result;
   } catch (e) {
     ui.alert(
       'Восстановление остановлено',
-      String(e && e.message ? e.message : e) + '\n\nПолный сброс не выполнялся.',
+      String(e && e.message ? e.message : e) +
+      '\n\nПолный сброс не выполнялся.' +
+      (backup ? '\nРезервная копия: ' + backup.url : ''),
       ui.ButtonSet.OK
     );
     throw e;
@@ -896,8 +901,84 @@ function ensureRepairMarks_(sheet) {
 }
 
 function repairAttendanceWorkbook_(spreadsheet, options) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    return repairAttendanceWorkbookUnlocked_(spreadsheet, options);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getRecoverySourceIssues_(spreadsheet) {
+  const journal = spreadsheet.getSheetByName(SHEETS.JOURNAL);
+  if (!journal) return [];
+
+  const issues = [];
+  const hasJournalStudents =
+    journal.getLastRow() >= JOURNAL_LAYOUT.DATA_START_ROW &&
+    journal
+      .getRange(
+        JOURNAL_LAYOUT.DATA_START_ROW,
+        1,
+        journal.getLastRow() - JOURNAL_LAYOUT.DATA_START_ROW + 1,
+        2
+      )
+      .getDisplayValues()
+      .some(row => String(row[0] || '').trim() || String(row[1] || '').trim());
+
+  const hasJournalLessons =
+    journal.getLastColumn() >= 3 &&
+    journal
+      .getRange(
+        JOURNAL_LAYOUT.SUBHEADER_ROW,
+        3,
+        1,
+        journal.getLastColumn() - 2
+      )
+      .getNotes()[0]
+      .some(note => /^lesson_id=.+/.test(String(note || '').trim()));
+
+  const students = spreadsheet.getSheetByName(SHEETS.STUDENTS);
+  const hasStudentSource =
+    students &&
+    students.getLastRow() >= 2 &&
+    students
+      .getRange(2, 1, students.getLastRow() - 1, 2)
+      .getDisplayValues()
+      .some(row => String(row[0] || '').trim() || String(row[1] || '').trim());
+
+  const lessons = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  const hasLessonSource =
+    lessons &&
+    lessons.getLastRow() >= 2 &&
+    lessons
+      .getRange(2, LESSON_COL.ID, lessons.getLastRow() - 1, 1)
+      .getDisplayValues()
+      .some(row => String(row[0] || '').trim());
+
+  if (hasJournalStudents && !hasStudentSource) {
+    issues.push('в «Журнале» есть студенты, но исходный «Список группы» отсутствует или пуст');
+  }
+  if (hasJournalLessons && !hasLessonSource) {
+    issues.push('в «Журнале» есть занятия, но исходный реестр «Занятия» отсутствует или пуст');
+  }
+
+  return issues;
+}
+
+function repairAttendanceWorkbookUnlocked_(spreadsheet, options) {
   options = options || {};
   const created = [];
+
+  const sourceIssues = getRecoverySourceIssues_(spreadsheet);
+  if (sourceIssues.length) {
+    throw new Error(
+      'Восстановление остановлено до перестройки журнала: ' +
+      sourceIssues.join('; ') + '. Используйте созданную резервную копию для возврата исходных реестров.'
+    );
+  }
 
   const students = ensureInstallerSheet_(spreadsheet, SHEETS.STUDENTS, created);
   const journal = ensureInstallerSheet_(spreadsheet, SHEETS.JOURNAL, created);
@@ -956,6 +1037,17 @@ function repairAttendanceWorkbook_(spreadsheet, options) {
 }
 
 function resetAttendanceWorkbookDestructive_(spreadsheet, options) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    return resetAttendanceWorkbookDestructiveUnlocked_(spreadsheet, options);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function resetAttendanceWorkbookDestructiveUnlocked_(spreadsheet, options) {
   options = options || {};
   const created = [];
 

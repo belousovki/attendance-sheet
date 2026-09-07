@@ -22,6 +22,7 @@ function onEdit(e) {
   }
 
   if (name === SHEETS.JOURNAL && row >= JOURNAL_LAYOUT.DATA_START_ROW && col >= 3) {
+    recordManualAttendanceEdit_(e);
     recomputeRowTotalsInSpreadsheet_(e.source, row);
     return;
   }
@@ -107,6 +108,52 @@ function onEdit(e) {
   if (name === SHEETS.SETTINGS && row >= 2) {
     const key = String(sh.getRange(row, 1).getValue() || '').trim();
     if (key === 'discipline') updateJournalTitleInSpreadsheet_(e.source);
+  }
+}
+
+function recordManualAttendanceEdit_(e) {
+  const range = e.range;
+  if (range.getNumRows() !== 1 || range.getNumColumns() !== 1) return;
+
+  const spreadsheet = e.source;
+  const journal = range.getSheet();
+  const column = range.getColumn();
+  const subheader = String(
+    journal.getRange(JOURNAL_LAYOUT.SUBHEADER_ROW, column).getValue() || ''
+  ).trim();
+  if (subheader !== 'Пос.') return;
+
+  const lessonId = getLessonIdFromJournalColumn_(spreadsheet, column);
+  const studentNo = String(journal.getRange(range.getRow(), 1).getValue() || '').trim();
+  const studentName = String(journal.getRange(range.getRow(), 2).getValue() || '').trim();
+  if (!lessonId || !studentNo) return;
+
+  const value = range.getValue();
+  const cleared = value === '' || value == null;
+  if (!cleared && !Number.isFinite(Number(value))) return;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    const marks = spreadsheet.getSheetByName(SHEETS.MARKS);
+    if (!marks) return;
+
+    marks.appendRow([
+      'M-' + Utilities.getUuid().slice(0, 12),
+      lessonId,
+      studentNo,
+      studentName,
+      'manual',
+      '',
+      new Date(),
+      cleared ? '' : Number(value),
+      cleared ? 'cleared' : 'manual',
+      '',
+      'manual',
+      'Ручная корректировка в Журнале'
+    ]);
+  } finally {
+    lock.releaseLock();
   }
 }
 

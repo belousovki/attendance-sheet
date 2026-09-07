@@ -113,6 +113,7 @@ function checkInstallerSafety() {
 
 function checkAttendanceConcurrency() {
   const attendance = read('Attendance.gs');
+  const codes = read('Codes.gs');
   const submit = functionBody(attendance, 'submitAttendance');
 
   assert(
@@ -130,6 +131,67 @@ function checkAttendanceConcurrency() {
     checksAfterLock.length >= 1,
     'submitAttendance must re-check alreadyMarked_ after acquiring the lock'
   );
+
+  const lockedPart = submit.slice(lockPos);
+  const lessonPos = lockedPart.indexOf('getActiveLesson_');
+  const validationPos = lockedPart.indexOf('validateAttendanceCode_');
+  const duplicatePos = lockedPart.indexOf('alreadyMarked_');
+  const appendPos = lockedPart.indexOf('marks.appendRow');
+  assert(
+    lessonPos >= 0 && validationPos > lessonPos && duplicatePos > validationPos && appendPos > duplicatePos,
+    'lesson, check and duplicate state must be revalidated under the lock before append'
+  );
+  assert(
+    lockedPart.includes("String(state.checkId || '') !== expectedCheckId"),
+    'a submission must not cross into a newer check'
+  );
+
+  const validator = functionBody(attendance, 'validateAttendanceCode_');
+  assert(
+    validator.includes('rawCheck.lessonId') && validator.includes('rawCheck.checkId'),
+    'previous-code grace must belong to the same lesson and check'
+  );
+
+  for (const name of ['startCheck_', 'stopCheck_']) {
+    const body = functionBody(codes, name);
+    assert(body.includes('LockService.getScriptLock'), `${name} must use ScriptLock`);
+    assert(body.includes('waitLock(5000)'), `${name} must wait for ScriptLock`);
+    assert(body.includes('finally') && body.includes('releaseLock'), `${name} must release ScriptLock`);
+  }
+}
+
+function checkManualAttendanceHistory() {
+  const events = read('Events.gs');
+  const onEdit = functionBody(events, 'onEdit');
+  const record = functionBody(events, 'recordManualAttendanceEdit_');
+  assert(onEdit.includes('recordManualAttendanceEdit_(e)'), 'Journal edits must record attendance corrections');
+  assert(record.includes("subheader !== 'Пос.'"), 'only attendance columns may create correction marks');
+  assert(record.includes("cleared ? 'cleared' : 'manual'"), 'manual clears and values need explicit history statuses');
+  assert(record.includes('LockService.getScriptLock'), 'manual history append must use ScriptLock');
+}
+
+function checkRecoverySafety() {
+  const installer = read('Installer.gs');
+  const recover = functionBody(installer, 'recoverAttendanceWorkbookFromMenu');
+  const repair = functionBody(installer, 'repairAttendanceWorkbook_');
+  const preflight = functionBody(installer, 'getRecoverySourceIssues_');
+  const reset = functionBody(installer, 'resetAttendanceWorkbookDestructive_');
+
+  assert(recover.indexOf('createAttendanceBackup_') < recover.indexOf('repairAttendanceWorkbook_'), 'recovery backup must precede repair');
+  assert(repair.includes('LockService.getScriptLock') && repair.includes('releaseLock'), 'repair must use ScriptLock');
+  assert(reset.includes('LockService.getScriptLock') && reset.includes('releaseLock'), 'destructive reset must use ScriptLock');
+  assert(preflight.includes('hasJournalStudents') && preflight.includes('hasStudentSource'), 'recovery must protect student data when its source is missing');
+  assert(preflight.includes('hasJournalLessons') && preflight.includes('hasLessonSource'), 'recovery must protect lesson data when its source is missing');
+}
+
+function checkLessonDateFormats() {
+  const start = read('Lesson.gs');
+  const functionPos = start.indexOf('function startLesson_');
+  const appendPos = start.indexOf('appendRow', functionPos);
+  const dateFormatPos = start.indexOf("setNumberFormat('dd.MM.yyyy')", functionPos);
+  assert(dateFormatPos > appendPos, 'the appended lesson row must receive an explicit date format');
+  assert(start.includes("setNumberFormat('dd.MM.yyyy HH:mm:ss')"), 'lesson timestamps must receive an explicit date-time format');
+  assert(start.includes('typeNumber'), 'startLesson_ must return the assigned type number');
 }
 
 function checkScoreScaleDirection() {
@@ -152,6 +214,9 @@ checkSyntax();
 checkNoDuplicateFunctions();
 checkInstallerSafety();
 checkAttendanceConcurrency();
+checkManualAttendanceHistory();
+checkRecoverySafety();
+checkLessonDateFormats();
 checkScoreScaleDirection();
 
 console.log('alpha.9 safety checks: OK');

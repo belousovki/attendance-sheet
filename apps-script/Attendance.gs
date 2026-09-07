@@ -10,62 +10,29 @@ function submitAttendance(studentNo, code, clientToken) {
     };
   }
 
-  const state = getCheckState_();
+  const inputCode =
+    String(code || '').replace(/\D/g, '');
 
-  if (!state.active) {
+  let validation =
+    validateAttendanceCode_(inputCode);
+
+  if (!validation.state.active) {
     return {
       ok: false,
       message: 'Проверка присутствия сейчас не проводится.'
     };
   }
 
-  const inputCode =
-    String(code || '').replace(/\D/g, '');
-
-  let codeOk = inputCode === state.code;
-
-  if (!codeOk) {
-    const rawCheck = getActiveCheckRaw_();
-
-    if (rawCheck) {
-      const cycleMs =
-        Number(rawCheck.seconds || 60) * 1000;
-
-      const elapsed = Math.max(
-        0,
-        Date.now() - Number(rawCheck.startMs)
-      );
-
-      const cycle =
-        Math.floor(elapsed / cycleMs);
-
-      const intoCycle =
-        elapsed - cycle * cycleMs;
-
-      if (cycle > 0 && intoCycle <= 5000) {
-        const digits =
-          Number(getSettings_().code_digits || 4);
-
-        const previousCode = stableCode_(
-          rawCheck.seed,
-          cycle - 1,
-          digits
-        );
-
-        codeOk =
-          inputCode === previousCode;
-      }
-    }
-  }
-
-  if (!codeOk) {
+  if (!validation.ok) {
     return {
       ok: false,
       message: 'Код неверный или уже сменился.'
     };
   }
 
-  const student =
+  let state = validation.state;
+  const expectedCheckId = String(state.checkId || '');
+  let student =
     getStudentByNo(studentNo);
 
   if (!student) {
@@ -116,18 +83,65 @@ function submitAttendance(studentNo, code, clientToken) {
 
   try {
     /*
+     * За время ожидания lock преподаватель мог завершить
+     * занятие, остановить проверку или запустить новый код.
+     * Поэтому вся предварительная проверка повторяется под lock.
+     */
+    const lockedLesson = getActiveLesson_();
+
+    if (
+      !lockedLesson ||
+      String(lockedLesson.lessonId) !== String(lesson.lessonId)
+    ) {
+      return {
+        ok: false,
+        message: 'Занятие уже завершено. Отметка не записана.'
+      };
+    }
+
+    validation = validateAttendanceCode_(inputCode);
+    state = validation.state;
+
+    if (
+      !state.active ||
+      String(state.lessonId || '') !== String(lockedLesson.lessonId) ||
+      String(state.checkId || '') !== expectedCheckId
+    ) {
+      return {
+        ok: false,
+        message: 'Проверка присутствия уже завершена. Отметка не записана.'
+      };
+    }
+
+    if (!validation.ok) {
+      return {
+        ok: false,
+        message: 'Код неверный или уже сменился.'
+      };
+    }
+
+    student = getStudentByNo(studentNo);
+
+    if (!student) {
+      return {
+        ok: false,
+        message: 'Студент больше не входит в активный состав группы.'
+      };
+    }
+
+    /*
      * Критическая повторная проверка под ScriptLock.
      * Без неё два почти одновременных запроса могли оба
      * пройти alreadyMarked_() и создать дубликаты в «Отметки».
      */
     if (
       alreadyMarked_(
-        lesson.lessonId,
+        lockedLesson.lessonId,
         student.no
       )
     ) {
       ensureJournalAttendanceFromLatestMark_(
-        lesson.lessonId,
+        lockedLesson.lessonId,
         student.no
       );
 
@@ -178,7 +192,7 @@ function submitAttendance(studentNo, code, clientToken) {
     marks.appendRow([
       'M-' +
         Utilities.getUuid().slice(0, 12),
-      lesson.lessonId,
+      lockedLesson.lessonId,
       student.no,
       student.name,
       state.kind,
@@ -212,6 +226,50 @@ function submitAttendance(studentNo, code, clientToken) {
   } finally {
     lock.releaseLock();
   }
+}
+
+
+function validateAttendanceCode_(inputCode) {
+  const state = getCheckState_();
+
+  if (!state.active) {
+    return { ok: false, state };
+  }
+
+  let ok = String(inputCode || '') === state.code;
+
+  if (!ok) {
+    const rawCheck = getActiveCheckRaw_();
+
+    if (
+      rawCheck &&
+      String(rawCheck.checkId || '') === String(state.checkId || '') &&
+      String(rawCheck.lessonId || '') === String(state.lessonId || '')
+    ) {
+      const cycleMs =
+        Number(rawCheck.seconds || 60) * 1000;
+      const elapsed = Math.max(
+        0,
+        Date.now() - Number(rawCheck.startMs)
+      );
+      const cycle = Math.floor(elapsed / cycleMs);
+      const intoCycle = elapsed - cycle * cycleMs;
+
+      if (cycle > 0 && intoCycle <= 5000) {
+        const digits =
+          Number(getSettings_().code_digits || 4);
+        const previousCode = stableCode_(
+          rawCheck.seed,
+          cycle - 1,
+          digits
+        );
+
+        ok = String(inputCode || '') === previousCode;
+      }
+    }
+  }
+
+  return { ok, state };
 }
 
 
