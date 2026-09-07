@@ -21,56 +21,63 @@ function getActiveCheckRaw_() {
 }
 
 function startCheck_(kind) {
-  const lesson = getActiveLesson_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
 
-  if (!lesson) {
-    return {
-      ok: false,
-      message: 'Сначала начните занятие.'
-    };
-  }
+  try {
+    const lesson = getActiveLesson_();
 
-  kind = kind === 'late' ? 'late' : 'regular';
-  const settings = getSettings_();
+    if (!lesson) {
+      return {
+        ok: false,
+        message: 'Сначала начните занятие.'
+      };
+    }
 
-  const seconds = Number(
-    kind === 'late'
-      ? settings.late_code_seconds
-      : settings.regular_code_seconds
-  ) || 60;
+    kind = kind === 'late' ? 'late' : 'regular';
+    const settings = getSettings_();
 
-  const check = {
-    checkId: 'C-' + Utilities.getUuid().slice(0, 10),
-    lessonId: lesson.lessonId,
-    kind,
-    seconds,
-    startMs: Date.now(),
-    seed: Utilities.getUuid()
-  };
-
-  props_().setProperty(
-    PROPS.ACTIVE_CHECK,
-    JSON.stringify(check)
-  );
-
-  const lessonRow = findLessonRow_(lesson.lessonId);
-
-  if (lessonRow) {
-    const lessons = ss_().getSheetByName(SHEETS.LESSONS);
-    const oldCount = Number(
-      lessons.getRange(lessonRow, LESSON_COL.CHECK_COUNT).getValue() || 0
-    );
-    lessons.getRange(lessonRow, LESSON_COL.CHECK_COUNT).setValue(oldCount + 1);
-  }
-
-  return {
-    ok: true,
-    message:
+    const seconds = Number(
       kind === 'late'
-        ? 'Генерация кодов для опоздавшего запущена.'
-        : 'Генерация кодов присутствия запущена.',
-    state: getTeacherState_()
-  };
+        ? settings.late_code_seconds
+        : settings.regular_code_seconds
+    ) || 60;
+
+    const check = {
+      checkId: 'C-' + Utilities.getUuid().slice(0, 10),
+      lessonId: lesson.lessonId,
+      kind,
+      seconds,
+      startMs: Date.now(),
+      seed: Utilities.getUuid()
+    };
+
+    props_().setProperty(
+      PROPS.ACTIVE_CHECK,
+      JSON.stringify(check)
+    );
+
+    const lessonRow = findLessonRow_(lesson.lessonId);
+
+    if (lessonRow) {
+      const lessons = ss_().getSheetByName(SHEETS.LESSONS);
+      const oldCount = Number(
+        lessons.getRange(lessonRow, LESSON_COL.CHECK_COUNT).getValue() || 0
+      );
+      lessons.getRange(lessonRow, LESSON_COL.CHECK_COUNT).setValue(oldCount + 1);
+    }
+
+    return {
+      ok: true,
+      message:
+        kind === 'late'
+          ? 'Генерация кодов для опоздавшего запущена.'
+          : 'Генерация кодов присутствия запущена.',
+      state: getTeacherState_()
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getCheckState_() {
@@ -103,11 +110,18 @@ function getCheckState_() {
 }
 
 function stopCheck_() {
-  props_().deleteProperty(PROPS.ACTIVE_CHECK);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
 
-  return {
-    ok: true,
-    state: getTeacherState_()
-  };
+  try {
+    props_().deleteProperty(PROPS.ACTIVE_CHECK);
+
+    return {
+      ok: true,
+      state: getTeacherState_()
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 

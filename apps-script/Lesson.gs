@@ -69,6 +69,23 @@ function startLesson_(meta) {
     ]);
 
     /*
+     * appendRow() may apply the sheet's automatic date-time format instead
+     * of the format prepared on an otherwise empty row. Format the actual
+     * registry row after it has been appended.
+     */
+    const lessonRow = lessons.getLastRow();
+    lessons.getRange(lessonRow, LESSON_COL.DATE)
+      .setNumberFormat('dd.MM.yyyy');
+    [
+      LESSON_COL.STARTED,
+      LESSON_COL.ENDED,
+      LESSON_COL.CREATED
+    ].forEach(column => {
+      lessons.getRange(lessonRow, column)
+        .setNumberFormat('dd.MM.yyyy HH:mm:ss');
+    });
+
+    /*
      * alpha.8:
      * Шкала оценок строится только после записи занятия в реестр.
      * Иначе getLessonScoreRanges_() ещё не знает номера новых
@@ -94,7 +111,12 @@ function startLesson_(meta) {
     saveActiveLesson_(lesson);
     props_().deleteProperty(PROPS.ACTIVE_CHECK);
 
-    return { ok: true, message: 'Занятие начато.', state: getTeacherState_() };
+    return {
+      ok: true,
+      message: 'Занятие начато.',
+      typeNumber,
+      state: getTeacherState_()
+    };
   } finally {
     lock.releaseLock();
   }
