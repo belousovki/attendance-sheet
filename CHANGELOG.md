@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.0.0-alpha.8 — Installer Edition
+
+- added editable `Шкала оценок` with a fixed universal score-to-color mapping;
+- default visual scale: `0` blue, `1–2` green, `3–4` light green, `5` yellow, `6–7` yellow-orange, `8–9` orange, `10+` red;
+- applies the same color semantics to all lesson `Пос.` / `Оц.` cells;
+- summary columns are excluded from the score scale;
+- score-scale edits automatically rebuild conditional formatting;
+- journal rebuilds and new lessons resynchronize score formatting;
+- fixed alpha.7 ordering bug: formatting is now applied only after the new lesson is written to the lesson registry;
+- canonical Installer Template and a fresh copied instance were smoke-tested successfully.
+
 ## v3.0.0-alpha.6 — Installer Edition
 
 - completed live installer workflow from a blank Google Sheet;
