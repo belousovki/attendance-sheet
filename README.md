@@ -23,17 +23,21 @@ The project provides a reusable attendance workflow with:
 
 The `main` branch contains the tested **v2.7** workflow. A teacher makes a copy of a fully prepared Google Sheet and deploys its bound Apps Script project as a Web App.
 
-This remains the recommended stable option.
+This remains the recommended stable option until v3 leaves alpha.
 
-### 2. Installer / loader prototype
+### 2. Installer Edition — v3 alpha
 
-This branch (`installer-v3-alpha`) experiments with **v3.0.0-alpha.1**.
+The `installer-v3-alpha` branch now contains the tested **v3.0.0-alpha.6** installer workflow.
 
-Instead of depending on a prebuilt spreadsheet layout, the Apps Script project contains `Installer.gs`. The installer can create the required sheets, headers, validation rules, lesson types, settings and technical structures in a blank Google Sheet.
+The canonical Installer Template is intentionally almost blank. Its bound Apps Script project contains the whole application. After making a copy, the teacher opens the spreadsheet and chooses:
+
+`Посещаемость → Установить / восстановить журнал…`
+
+The installer creates the workbook structure, settings, validation rules and technical sheets automatically. No `clasp`, terminal, or manual addition of Apps Script files is required for end users.
+
+After installation the teacher fills the student list, deploys the bound Apps Script project as a Web App, and saves the exact `/exec` URL through the spreadsheet menu.
 
 See [docs/INSTALLER_ALPHA.md](docs/INSTALLER_ALPHA.md).
-
-The current alpha intentionally requires running `installAttendanceWorkbook()` once from the Apps Script editor. After independent testing, the next step is a bootstrap `onOpen()` that detects a missing schema and offers an `Установить журнал…` menu automatically.
 
 ## Data model
 
@@ -49,7 +53,7 @@ The `Журнал` sheet should not be structurally edited by hand. Attendance (
 
 ## Apps Script source
 
-The tested v2.7 project originally used one large `Code.gs`. In this repository that file is split at top-level boundaries into smaller Apps Script modules for easier maintenance. Google Apps Script loads all `.gs` files into the same project namespace, so no imports are required.
+The tested project originally used one large `Code.gs`. In this repository the code is split at top-level boundaries into smaller Apps Script modules for easier maintenance. Google Apps Script loads all `.gs` files into the same project namespace, so no imports are required.
 
 ```text
 apps-script/
@@ -64,12 +68,14 @@ apps-script/
 ├── Attendance.gs
 ├── Interfaces.gs
 ├── Utils.gs
-├── Installer.gs          # installer-v3-alpha only
+├── Installer.gs
 ├── Sidebar.html
 ├── Student.html
 ├── Display.html
 └── Teacher.html
 ```
+
+`clasp` is a maintainer/developer convenience for syncing these source files with the canonical Apps Script project. It is not part of the teacher workflow.
 
 ## Installation
 
