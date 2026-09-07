@@ -1,6 +1,6 @@
 {
   "name": "attendance-sheet",
-  "version": "3.0.0-alpha.6",
+  "version": "3.0.0-alpha.8",
   "private": true,
   "description": "Google Sheets attendance journal with tested Apps Script Installer Edition alpha",
   "scripts": {
