@@ -27,15 +27,21 @@ This remains the recommended stable option until v3 leaves alpha.
 
 ### 2. Installer Edition — v3 alpha
 
-The `installer-v3-alpha` branch now contains the tested **v3.0.0-alpha.8** installer workflow.
+**Create a copy of the canonical template:** [Open the Google Sheets copy screen](https://docs.google.com/spreadsheets/d/1-KkNNJtsH5zHAvf-dnlcOiSJ55fX-RYsA7Raa0PgP8k/copy)
+
+For external distribution the canonical template must be shared as **Anyone with the link → Viewer**. The `/copy` link is intentionally used so teachers create their own independent course instance instead of editing the canonical template.
+
+The `installer-v3-alpha` branch now contains the tested **v3.0.0-alpha.9** installer workflow.
 
 The canonical Installer Template is intentionally almost blank. Its bound Apps Script project contains the whole application. After making a copy, the teacher opens the spreadsheet and chooses:
 
 `Посещаемость → Установить / восстановить журнал…`
 
-The installer creates the workbook structure, settings, validation rules and technical sheets automatically. No `clasp`, terminal, or manual addition of Apps Script files is required for end users.
+The installer creates or safely repairs the workbook structure, settings, validation rules and technical sheets automatically. Recovery is non-destructive: existing students, lessons, grades and attendance history are preserved. No `clasp`, terminal, or manual addition of Apps Script files is required for end users.
 
 After installation the teacher fills the student list, deploys the bound Apps Script project as a Web App, and saves the exact `/exec` URL through the spreadsheet menu.
+
+A full reset is a separate explicitly destructive command. It requires typed confirmation and creates a Drive backup before any data is cleared.
 
 See [docs/INSTALLER_ALPHA.md](docs/INSTALLER_ALPHA.md).
 
