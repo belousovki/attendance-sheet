@@ -8,7 +8,7 @@ The teacher does **not** need GitHub, `clasp`, a terminal, or manual Apps Script
 
 The canonical Installer Template is a Google Sheet with the complete bound Apps Script project already attached. The visible workbook itself is intentionally minimal.
 
-Canonical copy link: [https://docs.google.com/spreadsheets/d/1-KkNNJtsH5zHAvf-dnlcOiSJ55fX-RYsA7Raa0PgP8k/copy](https://docs.google.com/spreadsheets/d/1-KkNNJtsH5zHAvf-dnlcOiSJ55fX-RYsA7Raa0PgP8k/copy)
+Canonical copy link: [https://docs.google.com/spreadsheets/d/10nzyqzAO_Hnc20MFKZKDVmikuQ4OOFCQNdk3JwpGnXQ/copy](https://docs.google.com/spreadsheets/d/10nzyqzAO_Hnc20MFKZKDVmikuQ4OOFCQNdk3JwpGnXQ/copy)
 
 The source template must be shared as **Anyone with the link → Viewer** before external distribution.
 
@@ -59,17 +59,27 @@ After successful installation the normal attendance menu is shown.
 
 ## Tested workflow
 
-The previously verified end-to-end scenarios remain the functional baseline:
+A fresh copy made from the canonical alpha.9 template has been installed and deployed as a Web App end-to-end. The live smoke test verified:
 
-- installation from a blank spreadsheet;
+- installation from the minimal `Установщик` sheet;
+- `app_version = 3.0.0-alpha.9`, `code_version = 3.0.0-alpha.9`, `schema_version = 3`, `install_status = ready`;
+- student, display and teacher Web App routes from the configured `/exec` deployment;
+- lesson creation and closing;
+- regular attendance codes;
+- late-attendance codes with separate late points;
+- student submissions written to the technical `Отметки` history;
+- automatic absence records on lesson finish;
+- manual `Оц.` values remaining independent from attendance;
+- immediate fixed conditional formatting for both `Пос.` and `Оц.`;
+- cold-to-hot score scale (`0` blue → `10+` red);
+- late-attendance notes in the journal;
+- summary columns remaining outside the per-lesson color scale.
+
+The previously verified scenarios remain part of the functional baseline:
+
 - recovery after a partially failed installation;
 - automatic student synchronization;
 - creating a lesson from the spreadsheet menu and teacher control page;
-- creation of `Пос.` / `Оц.` columns;
-- regular and late attendance codes;
-- student, display and teacher interfaces;
-- automatic absences on lesson finish;
-- technical attendance history;
 - safe lesson deletion;
 - diagnostics;
 - editable universal score scale.
@@ -176,4 +186,4 @@ The modular source lives in `apps-script/`.
 
 ## Alpha status
 
-v3.0.0-alpha.9 is the current Installer Edition candidate. The branch remains alpha until the hardening changes have been smoke-tested in a fresh copy of the canonical template and then used in a small number of real teaching sessions.
+v3.0.0-alpha.9 is the current Installer Edition candidate. A fresh copy of the canonical template has passed the full installation/Web App smoke test. The branch remains alpha while the same build is used in a small number of real teaching sessions and the new safe-recovery/reset paths receive additional practical testing.
