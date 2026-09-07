@@ -1,5 +1,5 @@
 /**
- * Универсальный журнал посещаемости v2.7.
+ * Универсальный журнал посещаемости v3.0 alpha.6.
  * Одна дисциплина / одна группа / один файл.
  * Настраиваемые типы занятий, темы, заметки и цвета.
  */
@@ -291,10 +291,28 @@ function bindToContainer_() {
 }
 
 function onOpen() {
+  const active = SpreadsheetApp.getActiveSpreadsheet();
+  if (!active) return;
+
+  if (!isAttendanceInstallationComplete_(active)) {
+    SpreadsheetApp.getUi()
+      .createMenu('Посещаемость')
+      .addItem('Установить / восстановить журнал…', 'installAttendanceWorkbook')
+      .addItem('Диагностика установки', 'diagnoseAttendanceInstallation')
+      .addToUi();
+    return;
+  }
+
   bindToContainer_();
+  syncVersionMetadata_(active);
+  migrateLegacyLessonStatuses_(active);
+  applyLessonDateFormats_(active);
 
   SpreadsheetApp.getUi()
     .createMenu('Посещаемость')
+    .addItem('Начать занятие…', 'startLessonFromMenu_')
+    .addItem('Завершить активное занятие', 'finishLessonFromMenu')
+    .addSeparator()
     .addItem('Открыть панель', 'showAttendanceSidebar')
     .addItem('Синхронизировать состав группы', 'syncStudentsFromMenu')
     .addItem('Перестроить журнал из исходных данных', 'rebuildJournalFromMenu')
@@ -306,8 +324,7 @@ function onOpen() {
     .addItem('Обновить ссылки приложения', 'refreshAppLinksFromMenu')
     .addSeparator()
     .addItem('Подготовить как пустой шаблон…', 'prepareBlankTemplateFromMenu')
-    .addSeparator()
-    .addItem('Завершить активное занятие', 'finishLessonFromMenu')
+    .addItem('Диагностика установки', 'diagnoseAttendanceInstallation')
     .addToUi();
 }
 
@@ -545,99 +562,353 @@ function refreshAppLinksFromMenu() {
   }
 }
 
-function finishLessonFromMenu() {
+function startLessonFromMenu_() {
   assertBoundSpreadsheetUi_();
-  try {
-    const result = finishLesson_();
-    SpreadsheetApp.getUi().alert(result.message || 'Занятие завершено.');
-  } catch (e) {
-    SpreadsheetApp.getUi().alert(String(e.message || e));
+
+  const ui = SpreadsheetApp.getUi();
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+  const existing = getActiveLesson_();
+  if (existing) {
+    ui.alert(
+      'Уже есть активное занятие',
+      'Сначала завершите текущее занятие.',
+      ui.ButtonSet.OK
+    );
+    return;
   }
+
+  /*
+   * Если пользователь вручную добавил строки в «Занятия»,
+   * они не создают колонки Журнала. Предупреждаем,
+   * чтобы такая строка не испортила автоматическую нумерацию.
+   */
+  const lessonsSheet = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  const lastRow = lessonsSheet.getLastRow();
+
+  if (lastRow >= 2) {
+    const rows = lessonsSheet
+      .getRange(2, 1, lastRow - 1, LESSON_COL.CREATED)
+      .getValues();
+
+    const incomplete = rows.findIndex(r => {
+      const id = String(r[LESSON_COL.ID - 1] || '').trim();
+      if (!id) return false;
+
+      const attCol = Number(r[LESSON_COL.ATTENDANCE_COL - 1] || 0);
+      const gradeCol = Number(r[LESSON_COL.GRADE_COL - 1] || 0);
+
+      return !attCol || !gradeCol;
+    });
+
+    if (incomplete >= 0) {
+      ui.alert(
+        'Есть вручную созданная строка занятия',
+        'На листе «Занятия» найдена строка ' + (incomplete + 2) +
+        ' без связанных колонок Журнала.\n\n' +
+        'Удалите эту строку и снова выберите «Начать занятие…». ' +
+        'Новые занятия лучше создавать через меню или пульт, а лист «Занятия» использовать как реестр.',
+        ui.ButtonSet.OK
+      );
+      return;
+    }
+  }
+
+  const types = getLessonTypes_(true);
+  if (!types.length) {
+    ui.alert(
+      'Нет активных типов занятий',
+      'Добавьте хотя бы один активный тип на листе «Типы занятий».',
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  const typeNames = types.map(t => t.name);
+
+  const typeResponse = ui.prompt(
+    'Тип занятия',
+    'Введите один из активных типов:\n' + typeNames.join(', '),
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (typeResponse.getSelectedButton() !== ui.Button.OK) return;
+
+  let lessonType = String(typeResponse.getResponseText() || '').trim();
+  if (!typeNames.includes(lessonType)) {
+    ui.alert(
+      'Неизвестный тип занятия',
+      'Используйте один из вариантов:\n' + typeNames.join(', '),
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  const modeResponse = ui.alert(
+    'Формат занятия',
+    'Занятие проходит очно?\n\n' +
+    'Да = Очно\nНет = Дистанционно',
+    ui.ButtonSet.YES_NO_CANCEL
+  );
+
+  if (modeResponse === ui.Button.CANCEL) return;
+
+  const mode =
+    modeResponse === ui.Button.YES
+      ? 'Очно'
+      : 'Дистанционно';
+
+  const topicResponse = ui.prompt(
+    'Тема занятия',
+    'Введите тему (можно оставить пустой).',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (topicResponse.getSelectedButton() !== ui.Button.OK) return;
+
+  const topic = String(topicResponse.getResponseText() || '').trim();
+
+  const result = startLesson_({
+    mode,
+    lessonType,
+    topic,
+    notes: ''
+  });
+
+  ui.alert(
+    result.ok ? 'Занятие создано' : 'Не удалось создать занятие',
+    result.message || '',
+    ui.ButtonSet.OK
+  );
 }
 
-function syncStudentsFromMenu() {
+function finishLessonFromMenu() {
   assertBoundSpreadsheetUi_();
-  try {
-    const result = syncStudents_();
-    recomputeAllTotals_();
-    SpreadsheetApp.getUi().alert(
-      'Состав синхронизирован. Активных: ' +
-      result.active + ', всего: ' + result.total + '.'
-    );
-  } catch (e) {
-    SpreadsheetApp.getUi().alert(String(e.message || e));
-  }
+  const result = finishLesson_();
+  SpreadsheetApp.getUi().alert(result.message);
 }
 
 function assertBoundSpreadsheetUi_() {
-  const active =
-    SpreadsheetApp.getActiveSpreadsheet();
-
+  const active = SpreadsheetApp.getActiveSpreadsheet();
   if (!active) {
-    throw new Error(
-      'Команда доступна только из связанной Google-таблицы.'
-    );
+    throw new Error('Команда доступна только из связанной Google-таблицы.');
   }
 
-  const boundId =
-    props_().getProperty(
-      PROPS.BOUND_SPREADSHEET_ID
-    );
-
-  if (
-    !boundId ||
-    active.getId() !== boundId
-  ) {
-    /*
-     * Если это новая копия, перепривязываем её прямо сейчас.
-     */
-    bindToContainer_();
-
-    const reboundId =
-      props_().getProperty(
-        PROPS.BOUND_SPREADSHEET_ID
-      );
-
-    if (
-      !reboundId ||
-      active.getId() !== reboundId
-    ) {
-      throw new Error(
-        'Не удалось привязать этот экземпляр таблицы.'
-      );
-    }
+  const boundId = String(props_().getProperty(PROPS.BOUND_SPREADSHEET_ID) || '');
+  if (boundId && boundId !== active.getId()) {
+    props_().setProperty(PROPS.BOUND_SPREADSHEET_ID, active.getId());
   }
+
+  return active;
 }
 
-function doGet(e) {
-  const view = (e && e.parameter && e.parameter.view) || 'student';
-  const discipline = String(getSettings_().discipline || 'Дисциплина');
+function prepareBlankTemplateFromMenu() {
+  assertBoundSpreadsheetUi_();
+  const ui = SpreadsheetApp.getUi();
 
-  if (view === 'teacher') {
-    const key = String((e && e.parameter && e.parameter.key) || '');
+  const answer = ui.alert(
+    'Подготовить пустой шаблон?',
+    'Будут удалены список студентов, занятия, отметки посещаемости/оценки, ' +
+    'служебная история и URL развертывания. Типы занятий и общие настройки сохранятся.',
+    ui.ButtonSet.YES_NO
+  );
 
-    if (!isTeacherKeyValid_(key)) {
-      return HtmlService.createHtmlOutput(
-        '<h2>Доступ запрещён</h2><p>Неверная ссылка пульта преподавателя.</p>'
-      );
-    }
+  if (answer !== ui.Button.YES) return;
 
-    const tpl = HtmlService.createTemplateFromFile('Teacher');
-    tpl.teacherKey = key;
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const students = spreadsheet.getSheetByName(SHEETS.STUDENTS);
+  const lessons = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  const marks = spreadsheet.getSheetByName(SHEETS.MARKS);
 
-    return tpl.evaluate()
-      .setTitle(discipline + ' — пульт преподавателя')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  if (students.getMaxRows() > 1) {
+    students.getRange(2, 1, students.getMaxRows() - 1, 3).clearContent();
+  }
+  if (lessons.getMaxRows() > 1) {
+    lessons.getRange(2, 1, lessons.getMaxRows() - 1, LESSON_COL.CREATED).clearContent();
+  }
+  if (marks.getMaxRows() > 1) {
+    marks.getRange(2, 1, marks.getMaxRows() - 1, 12).clearContent();
   }
 
-  const file = view === 'display' ? 'Display' : 'Student';
-  return HtmlService.createTemplateFromFile(file)
-    .evaluate()
-    .setTitle(
-      view === 'display'
-        ? discipline + ' — код присутствия'
-        : discipline + ' — отметка присутствия'
-    )
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  props_().deleteProperty(PROPS.ACTIVE_LESSON);
+  props_().deleteProperty(PROPS.ACTIVE_CHECK);
+
+  setSettingValueInSpreadsheet_(spreadsheet, 'discipline', 'Название дисциплины', 'Название дисциплины');
+  setSettingValueInSpreadsheet_(spreadsheet, 'web_app_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'student_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'display_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'teacher_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'student_short_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'display_short_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'sheet_short_url', '', null);
+  setSettingValueInSpreadsheet_(spreadsheet, 'teacher_key', newTeacherKey_(),
+    'Секретный ключ пульта; создаётся автоматически для каждой копии');
+  setSettingValueInSpreadsheet_(spreadsheet, 'instance_spreadsheet_id', spreadsheet.getId(),
+    'ID экземпляра; меняется автоматически при копировании файла');
+  setSettingValueInSpreadsheet_(spreadsheet, 'sheet_url', spreadsheet.getUrl(),
+    'Прямая ссылка на этот журнал; обновляется автоматически');
+
+  rebuildJournalFromRegistryInSpreadsheet_(spreadsheet);
+
+  ui.alert(
+    'Готово. Это чистый шаблон. Теперь его можно копировать для новой дисциплины.'
+  );
 }
 
+function deleteSelectedLessonFromMenu() {
+  assertBoundSpreadsheetUi_();
+
+  const ui = SpreadsheetApp.getUi();
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = spreadsheet.getActiveSheet();
+
+  if (!sh || sh.getName() !== SHEETS.LESSONS) {
+    ui.alert('Откройте лист «Занятия» и выберите строку занятия, которое нужно удалить.');
+    return;
+  }
+
+  const row = sh.getActiveRange().getRow();
+  if (row < 2) {
+    ui.alert('Выберите строку занятия ниже заголовка.');
+    return;
+  }
+
+  const lessonId = String(sh.getRange(row, LESSON_COL.ID).getDisplayValue() || '').trim();
+  if (!lessonId) {
+    ui.alert('В выбранной строке нет ID занятия.');
+    return;
+  }
+
+  const lessonType = String(sh.getRange(row, LESSON_COL.TYPE).getDisplayValue() || '').trim();
+  const topic = String(sh.getRange(row, LESSON_COL.TOPIC).getDisplayValue() || '').trim();
+  const dateText = String(sh.getRange(row, LESSON_COL.DATE).getDisplayValue() || '').trim();
+
+  const answer = ui.alert(
+    'Удалить занятие?',
+    [dateText, lessonType, topic].filter(Boolean).join(' · ') +
+      '\n\nБудут удалены само занятие, его отметки посещаемости и соответствующие колонки Пос./Оц. из журнала. ' +
+      'Другие занятия и их оценки сохранятся.',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (answer !== ui.Button.YES) return;
+
+  const result = deleteLessonById_(lessonId);
+  ui.alert(result.message);
+}
+
+function deleteLessonFromJournalSelection_() {
+  assertBoundSpreadsheetUi_();
+
+  const ui = SpreadsheetApp.getUi();
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = spreadsheet.getActiveSheet();
+
+  if (!sh || sh.getName() !== SHEETS.JOURNAL) {
+    ui.alert('Откройте лист «Журнал» и выберите любую ячейку в колонке Пос. или Оц. нужного занятия.');
+    return;
+  }
+
+  const range = sh.getActiveRange();
+  if (!range) {
+    ui.alert('Выберите ячейку в колонке Пос. или Оц. нужного занятия.');
+    return;
+  }
+
+  const col = range.getColumn();
+  const lastCol = sh.getLastColumn();
+  const headers = sh.getRange(JOURNAL_LAYOUT.META_ROW, 1, 1, lastCol).getDisplayValues()[0];
+  const summaryCol = headers.indexOf('Баллы за посещение') + 1;
+
+  if (col < 3 || (summaryCol && col >= summaryCol)) {
+    ui.alert('Выберите колонку Пос. или Оц. конкретного занятия, а не ФИО/№ или итоговые баллы.');
+    return;
+  }
+
+  let lessonId = '';
+
+  const subNote = String(sh.getRange(JOURNAL_LAYOUT.SUBHEADER_ROW, col).getNote() || '').trim();
+  const subMatch = subNote.match(/lesson_id\s*=\s*(.+)/i);
+  if (subMatch) lessonId = String(subMatch[1] || '').trim();
+
+  if (!lessonId) {
+    const metaNote = String(sh.getRange(JOURNAL_LAYOUT.META_ROW, col).getNote() || '').trim();
+    const metaMatch = metaNote.match(/lesson_id\s*=\s*(.+)/i);
+    if (metaMatch) lessonId = String(metaMatch[1] || '').trim();
+  }
+
+  if (!lessonId && col > 1) {
+    const leftSubNote = String(sh.getRange(JOURNAL_LAYOUT.SUBHEADER_ROW, col - 1).getNote() || '').trim();
+    const leftMatch = leftSubNote.match(/lesson_id\s*=\s*(.+)/i);
+    if (leftMatch) lessonId = String(leftMatch[1] || '').trim();
+  }
+
+  if (!lessonId) {
+    ui.alert(
+      'Не удалось определить занятие по выбранной колонке.\n\n' +
+      'Если это старый или вручную изменённый журнал, используйте «Перестроить журнал из исходных данных», ' +
+      'а затем повторите удаление.'
+    );
+    return;
+  }
+
+  const row = findLessonRow_(lessonId);
+  if (!row) {
+    ui.alert('Занятие с ID ' + lessonId + ' не найдено в реестре «Занятия».');
+    return;
+  }
+
+  const lessons = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  const dateText = String(lessons.getRange(row, LESSON_COL.DATE).getDisplayValue() || '').trim();
+  const lessonType = String(lessons.getRange(row, LESSON_COL.TYPE).getDisplayValue() || '').trim();
+  const topic = String(lessons.getRange(row, LESSON_COL.TOPIC).getDisplayValue() || '').trim();
+
+  const answer = ui.alert(
+    'Удалить занятие?',
+    [dateText, lessonType, topic].filter(Boolean).join(' · ') +
+      '\n\nБудут удалены само занятие, его отметки посещаемости и соответствующие колонки Пос./Оц. из журнала. ' +
+      'Другие занятия и их оценки сохранятся.',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (answer !== ui.Button.YES) return;
+
+  const result = deleteLessonById_(lessonId);
+  ui.alert(result.message);
+}
+
+function deleteLessonById_(lessonId) {
+  const spreadsheet = ss_();
+  const row = findLessonRow_(lessonId);
+
+  if (!row) {
+    return { ok: false, message: 'Занятие не найдено.' };
+  }
+
+  const lessons = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  const marks = spreadsheet.getSheetByName(SHEETS.MARKS);
+
+  const lastMarkRow = marks.getLastRow();
+  if (lastMarkRow >= 2) {
+    const ids = marks.getRange(2, 2, lastMarkRow - 1, 1).getDisplayValues().flat();
+    const rowsToDelete = [];
+    ids.forEach((id, idx) => {
+      if (String(id) === String(lessonId)) rowsToDelete.push(idx + 2);
+    });
+    rowsToDelete.sort((a, b) => b - a).forEach(r => marks.deleteRow(r));
+  }
+
+  const active = getActiveLesson_();
+  if (active && String(active.lessonId) === String(lessonId)) {
+    props_().deleteProperty(PROPS.ACTIVE_CHECK);
+    props_().deleteProperty(PROPS.ACTIVE_LESSON);
+  }
+
+  lessons.deleteRow(row);
+  rebuildJournalFromRegistryInSpreadsheet_(spreadsheet);
+
+  return {
+    ok: true,
+    message: 'Занятие удалено. Журнал перестроен, остальные данные сохранены.'
+  };
+}
