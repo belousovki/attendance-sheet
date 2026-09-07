@@ -76,6 +76,12 @@ function submitAttendance(studentNo, code, clientToken) {
     };
   }
 
+  /*
+   * Быстрая проверка до блокировки помогает не ставить
+   * уже отмеченные запросы в очередь. После получения lock
+   * проверка обязательно выполняется повторно — именно она
+   * защищает от двух одновременных submit одного студента.
+   */
   if (
     alreadyMarked_(
       lesson.lessonId,
@@ -96,75 +102,116 @@ function submitAttendance(studentNo, code, clientToken) {
     };
   }
 
-  let journalRow =
-    getJournalRowByStudentNo_(student.no);
+  const lock =
+    LockService.getScriptLock();
 
-  if (!journalRow) {
-    syncStudents_();
-    journalRow =
-      getJournalRowByStudentNo_(student.no);
-  }
-
-  if (!journalRow) {
+  if (!lock.tryLock(10000)) {
     return {
       ok: false,
+      retryable: true,
       message:
-        'Не удалось создать строку студента в журнале.'
+        'Сейчас одновременно отправляется много отметок. Повторите отправку через несколько секунд.'
     };
   }
 
-  const settings = getSettings_();
-  const isLate =
-    state.kind === 'late';
+  try {
+    /*
+     * Критическая повторная проверка под ScriptLock.
+     * Без неё два почти одновременных запроса могли оба
+     * пройти alreadyMarked_() и создать дубликаты в «Отметки».
+     */
+    if (
+      alreadyMarked_(
+        lesson.lessonId,
+        student.no
+      )
+    ) {
+      ensureJournalAttendanceFromLatestMark_(
+        lesson.lessonId,
+        student.no
+      );
 
-  const points = Number(
-    isLate
-      ? settings.late_points
-      : settings.attendance_present_points
-  ) || 0;
+      return {
+        ok: true,
+        already: true,
+        message:
+          '✓ Присутствие уже отмечено.',
+        student: student.name
+      };
+    }
 
-  const status =
-    isLate ? 'late' : 'present';
+    let journalRow =
+      getJournalRowByStudentNo_(student.no);
 
-  const now = new Date();
+    if (!journalRow) {
+      syncStudents_();
+      journalRow =
+        getJournalRowByStudentNo_(student.no);
+    }
 
-  const marks =
-    ss_().getSheetByName(SHEETS.MARKS);
+    if (!journalRow) {
+      return {
+        ok: false,
+        message:
+          'Не удалось создать строку студента в журнале.'
+      };
+    }
 
-  marks.appendRow([
-    'M-' +
-      Utilities.getUuid().slice(0, 12),
-    lesson.lessonId,
-    student.no,
-    student.name,
-    state.kind,
-    state.cycle,
-    now,
-    points,
-    status,
-    String(clientToken || '')
-      .slice(0, 100),
-    'web',
-    ''
-  ]);
+    const settings = getSettings_();
+    const isLate =
+      state.kind === 'late';
 
-  writeJournalAttendance_(
-    student.no,
-    points,
-    isLate,
-    now
-  );
+    const points = Number(
+      isLate
+        ? settings.late_points
+        : settings.attendance_present_points
+    ) || 0;
 
-  SpreadsheetApp.flush();
+    const status =
+      isLate ? 'late' : 'present';
 
-  return {
-    ok: true,
-    message: isLate
-      ? '✓ Отметка принята: опоздание зафиксировано.'
-      : '✓ Присутствие отмечено.',
-    student: student.name,
-    points
-  };
+    const now = new Date();
+
+    const marks =
+      ss_().getSheetByName(SHEETS.MARKS);
+
+    marks.appendRow([
+      'M-' +
+        Utilities.getUuid().slice(0, 12),
+      lesson.lessonId,
+      student.no,
+      student.name,
+      state.kind,
+      state.cycle,
+      now,
+      points,
+      status,
+      String(clientToken || '')
+        .slice(0, 100),
+      'web',
+      ''
+    ]);
+
+    writeJournalAttendance_(
+      student.no,
+      points,
+      isLate,
+      now
+    );
+
+    SpreadsheetApp.flush();
+
+    return {
+      ok: true,
+      message: isLate
+        ? '✓ Отметка принята: опоздание зафиксировано.'
+        : '✓ Присутствие отмечено.',
+      student: student.name,
+      points
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 
@@ -327,4 +374,3 @@ function writeJournalAttendance_(studentNo, points, isLate, when) {
 
   recomputeRowTotals_(row);
 }
-
