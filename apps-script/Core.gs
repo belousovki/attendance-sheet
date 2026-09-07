@@ -1,5 +1,5 @@
 /**
- * Универсальный журнал посещаемости v3.0 alpha.8.
+ * Универсальный журнал посещаемости v3.0 alpha.9 (ядро v2.7 + безопасный установщик).
  * Одна дисциплина / одна группа / один файл.
  * Настраиваемые типы занятий, темы, заметки и цвета.
  */
@@ -319,6 +319,7 @@ function onOpen() {
     .addItem('Открыть панель', 'showAttendanceSidebar')
     .addItem('Синхронизировать состав группы', 'syncStudentsFromMenu')
     .addItem('Перестроить журнал из исходных данных', 'rebuildJournalFromMenu')
+    .addItem('Восстановить структуру журнала…', 'recoverAttendanceWorkbookFromMenu')
     .addSeparator()
     .addItem('Удалить занятие по выбранному столбцу…', 'deleteLessonFromJournalSelection_')
     .addItem('Удалить занятие по выбранной строке…', 'deleteSelectedLessonFromMenu')
@@ -327,6 +328,7 @@ function onOpen() {
     .addItem('Обновить ссылки приложения', 'refreshAppLinksFromMenu')
     .addSeparator()
     .addItem('Подготовить как пустой шаблон…', 'prepareBlankTemplateFromMenu')
+    .addItem('Полный сброс журнала…', 'resetAttendanceWorkbookFromMenu')
     .addItem('Диагностика установки', 'diagnoseAttendanceInstallation')
     .addToUi();
 }
@@ -541,172 +543,180 @@ function refreshAppLinksFromMenu() {
 
   if (!base) {
     SpreadsheetApp.getUi().alert(
-      'URL веб-приложения ещё не задан.\n\n' +
-      'Сначала: Посещаемость → Настроить URL веб-приложения.'
+      'Сначала настройте URL веб-приложения.'
     );
     return;
   }
 
   try {
-    const links =
-      syncAppLinksInSpreadsheet_(
-        spreadsheet
-      );
-
-    SpreadsheetApp.getUi().alert(
-      links.deployed
-        ? 'Ссылки приложения обновлены.'
-        : 'URL веб-приложения не настроен.'
-    );
+    normalizeWebAppUrl_(base);
   } catch (e) {
     SpreadsheetApp.getUi().alert(
-      String(e.message || e)
+      'Сохранённый URL веб-приложения некорректен. ' +
+      'Запустите «Настроить URL веб-приложения» и укажите рабочий /exec.'
     );
+    return;
   }
-}
 
+  const links =
+    syncAppLinksInSpreadsheet_(
+      spreadsheet
+    );
+
+  SpreadsheetApp.getUi().alert(
+    'Ссылки приложения обновлены.'
+  );
+
+  return links;
+}
 
 function startLessonFromMenu_() {
   assertBoundSpreadsheetUi_();
 
-  const ui = SpreadsheetApp.getUi();
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const ui =
+    SpreadsheetApp.getUi();
 
-  const existing = getActiveLesson_();
-  if (existing) {
+  if (getActiveLesson_()) {
     ui.alert(
-      'Уже есть активное занятие',
-      'Сначала завершите текущее занятие.',
-      ui.ButtonSet.OK
+      'Уже есть активное занятие. Сначала завершите его.'
     );
     return;
   }
 
-  /*
-   * Если пользователь вручную добавил строки в «Занятия»,
-   * они не создают колонки Journal. Для теста предупреждаем,
-   * чтобы такая строка не испортила автоматическую нумерацию.
-   */
-  const lessonsSheet = spreadsheet.getSheetByName(SHEETS.LESSONS);
-  const lastRow = lessonsSheet.getLastRow();
+  const types =
+    getLessonTypes_(true);
 
-  if (lastRow >= 2) {
-    const rows = lessonsSheet
-      .getRange(2, 1, lastRow - 1, LESSON_COL.CREATED)
-      .getValues();
-
-    const incomplete = rows.findIndex(r => {
-      const id = String(r[LESSON_COL.ID - 1] || '').trim();
-      if (!id) return false;
-
-      const attCol = Number(r[LESSON_COL.ATTENDANCE_COL - 1] || 0);
-      const gradeCol = Number(r[LESSON_COL.GRADE_COL - 1] || 0);
-
-      return !attCol || !gradeCol;
-    });
-
-    if (incomplete >= 0) {
-      ui.alert(
-        'Есть вручную созданная строка занятия',
-        'На листе «Занятия» найдена строка ' + (incomplete + 2) +
-        ' без связанных колонок Журнала.\n\n' +
-        'Для теста удалите эту строку и снова выберите «Начать занятие…». ' +
-        'Новые занятия лучше создавать через меню или пульт, а лист «Занятия» использовать как реестр.',
-        ui.ButtonSet.OK
-      );
-      return;
-    }
-  }
-
-  const types = getLessonTypes_(true);
   if (!types.length) {
     ui.alert(
-      'Нет активных типов занятий',
-      'Добавьте хотя бы один активный тип на листе «Типы занятий».',
-      ui.ButtonSet.OK
+      'На листе «Типы занятий» нет активных типов занятий.'
     );
     return;
   }
 
-  const typeNames = types.map(t => t.name);
+  const typeNames =
+    types.map(t => t.name);
 
-  const typeResponse = ui.prompt(
-    'Тип занятия',
-    'Введите один из активных типов:\n' + typeNames.join(', '),
-    ui.ButtonSet.OK_CANCEL
-  );
+  const typeResponse =
+    ui.prompt(
+      'Начать занятие',
+      'Введите тип занятия:\n' +
+      typeNames.join('\n'),
+      ui.ButtonSet.OK_CANCEL
+    );
 
-  if (typeResponse.getSelectedButton() !== ui.Button.OK) return;
+  if (
+    typeResponse.getSelectedButton() !==
+    ui.Button.OK
+  ) {
+    return;
+  }
 
-  let lessonType = String(typeResponse.getResponseText() || '').trim();
-  if (!typeNames.includes(lessonType)) {
+  const lessonType =
+    String(
+      typeResponse.getResponseText() || ''
+    ).trim();
+
+  const typeConfig =
+    types.find(
+      t => t.name === lessonType
+    );
+
+  if (!typeConfig) {
     ui.alert(
-      'Неизвестный тип занятия',
-      'Используйте один из вариантов:\n' + typeNames.join(', '),
-      ui.ButtonSet.OK
+      'Тип занятия не найден среди активных типов.'
     );
     return;
   }
 
-  const modeResponse = ui.alert(
-    'Формат занятия',
-    'Занятие проходит очно?\n\n' +
-    'Да = Очно\nНет = Дистанционно',
-    ui.ButtonSet.YES_NO_CANCEL
-  );
-
-  if (modeResponse === ui.Button.CANCEL) return;
-
-  const mode =
-    modeResponse === ui.Button.YES
-      ? 'Очно'
-      : 'Дистанционно';
-
-  const topicResponse = ui.prompt(
-    'Тема занятия',
-    'Введите тему (можно оставить пустой).',
-    ui.ButtonSet.OK_CANCEL
-  );
-
-  if (topicResponse.getSelectedButton() !== ui.Button.OK) return;
-
-  const topic = String(topicResponse.getResponseText() || '').trim();
-
-  const result = startLesson_({
-    mode,
-    lessonType,
-    topic,
-    notes: ''
-  });
-
-  ui.alert(
-    result.ok ? 'Занятие создано' : 'Не удалось создать занятие',
-    result.message || '',
-    ui.ButtonSet.OK
-  );
-}
-
-function finishLessonFromMenu() {
-  assertBoundSpreadsheetUi_();
-  try {
-    const result = finishLesson_();
-    SpreadsheetApp.getUi().alert(result.message || 'Занятие завершено.');
-  } catch (e) {
-    SpreadsheetApp.getUi().alert(String(e.message || e));
-  }
-}
-
-function syncStudentsFromMenu() {
-  assertBoundSpreadsheetUi_();
-  try {
-    const result = syncStudents_();
-    recomputeAllTotals_();
-    SpreadsheetApp.getUi().alert(
-      'Состав синхронизирован. Активных: ' +
-      result.active + ', всего: ' + result.total + '.'
+  const modeResponse =
+    ui.prompt(
+      'Формат занятия',
+      'Введите «Очно» или «Дистанционно».',
+      ui.ButtonSet.OK_CANCEL
     );
+
+  if (
+    modeResponse.getSelectedButton() !==
+    ui.Button.OK
+  ) {
+    return;
+  }
+
+  const rawMode =
+    String(
+      modeResponse.getResponseText() || ''
+    ).trim();
+
+  const normalizedMode =
+    rawMode.toLowerCase();
+
+  let mode;
+
+  if (
+    normalizedMode === 'очно'
+  ) {
+    mode = 'Очно';
+  } else if (
+    normalizedMode === 'дистанционно'
+  ) {
+    mode = 'Дистанционно';
+  } else {
+    ui.alert(
+      'Формат должен быть «Очно» или «Дистанционно».'
+    );
+    return;
+  }
+
+  const topicResponse =
+    ui.prompt(
+      'Тема занятия',
+      'Введите тему занятия (можно оставить пустой).',
+      ui.ButtonSet.OK_CANCEL
+    );
+
+  if (
+    topicResponse.getSelectedButton() !==
+    ui.Button.OK
+  ) {
+    return;
+  }
+
+  const topic =
+    String(
+      topicResponse.getResponseText() || ''
+    ).trim();
+
+  try {
+    const result =
+      startLesson_({
+        lessonType,
+        mode,
+        topic,
+        notes: ''
+      });
+
+    ui.alert(
+      'Занятие начато',
+      (result.typeNumber
+        ? lessonType + ' №' + result.typeNumber
+        : lessonType) +
+      (topic ? '\nТема: ' + topic : '') +
+      '\n\nВ «Журнале» создана пара столбцов Пос./Оц.',
+      ui.ButtonSet.OK
+    );
+
+    return result;
   } catch (e) {
-    SpreadsheetApp.getUi().alert(String(e.message || e));
+    ui.alert(
+      'Не удалось начать занятие',
+      String(
+        e && e.message
+          ? e.message
+          : e
+      ),
+      ui.ButtonSet.OK
+    );
+    throw e;
   }
 }
 
@@ -716,68 +726,53 @@ function assertBoundSpreadsheetUi_() {
 
   if (!active) {
     throw new Error(
-      'Команда доступна только из связанной Google-таблицы.'
+      'Нет активной Google-таблицы.'
     );
   }
 
-  const boundId =
-    props_().getProperty(
-      PROPS.BOUND_SPREADSHEET_ID
-    );
+  props_().setProperty(
+    PROPS.BOUND_SPREADSHEET_ID,
+    active.getId()
+  );
 
-  if (
-    !boundId ||
-    active.getId() !== boundId
-  ) {
-    /*
-     * Если это новая копия, перепривязываем её прямо сейчас.
-     */
-    bindToContainer_();
-
-    const reboundId =
-      props_().getProperty(
-        PROPS.BOUND_SPREADSHEET_ID
-      );
-
-    if (
-      !reboundId ||
-      active.getId() !== reboundId
-    ) {
-      throw new Error(
-        'Не удалось привязать этот экземпляр таблицы.'
-      );
-    }
-  }
+  return active;
 }
 
-function doGet(e) {
-  const view = (e && e.parameter && e.parameter.view) || 'student';
-  const discipline = String(getSettings_().discipline || 'Дисциплина');
 
-  if (view === 'teacher') {
-    const key = String((e && e.parameter && e.parameter.key) || '');
+function showInstallStatus_() {
+  const ss = ss_();
+  const ui = SpreadsheetApp.getUi();
 
-    if (!isTeacherKeyValid_(key)) {
-      return HtmlService.createHtmlOutput(
-        '<h2>Доступ запрещён</h2><p>Неверная ссылка пульта преподавателя.</p>'
-      );
-    }
+  const health =
+    getInstallationHealth_(ss);
 
-    const tpl = HtmlService.createTemplateFromFile('Teacher');
-    tpl.teacherKey = key;
+  const lines = [];
 
-    return tpl.evaluate()
-      .setTitle(discipline + ' — пульт преподавателя')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
+  lines.push(
+    health.missing.length
+      ? 'Не хватает листов: ' +
+        health.missing.join(', ')
+      : 'Структура: OK'
+  );
 
-  const file = view === 'display' ? 'Display' : 'Student';
-  return HtmlService.createTemplateFromFile(file)
-    .evaluate()
-    .setTitle(
-      view === 'display'
-        ? discipline + ' — код присутствия'
-        : discipline + ' — отметка присутствия'
-    )
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  lines.push(
+    'Приложение: ' +
+    (health.storedVersion || 'не задано')
+  );
+
+  lines.push(
+    'Схема: ' +
+    (health.storedSchema || 'не задана')
+  );
+
+  lines.push(
+    'Статус: ' +
+    (health.installStatus || 'не задан')
+  );
+
+  ui.alert(
+    'Состояние установки',
+    lines.join('\n'),
+    ui.ButtonSet.OK
+  );
 }
