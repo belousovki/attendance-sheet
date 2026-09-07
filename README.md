@@ -39,6 +39,8 @@ The canonical Installer Template is intentionally almost blank. Its bound Apps S
 
 The installer creates or safely repairs the workbook structure, settings, validation rules and technical sheets automatically. Recovery is non-destructive: existing students, lessons, grades and attendance history are preserved. No `clasp`, terminal, or manual addition of Apps Script files is required for end users.
 
+A fresh copy of this exact canonical alpha.9 template has been installed, deployed as a Web App and smoke-tested end-to-end: regular/late attendance, auto-absence, manual grades and universal score formatting all worked on the generated workbook.
+
 After installation the teacher fills the student list, deploys the bound Apps Script project as a Web App, and saves the exact `/exec` URL through the spreadsheet menu.
 
 A full reset is a separate explicitly destructive command. It requires typed confirmation and creates a Drive backup before any data is cleared.
