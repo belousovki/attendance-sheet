@@ -27,13 +27,13 @@ This remains the recommended stable option until v3 leaves alpha.
 
 ### 2. Installer Edition — v3 alpha
 
-**Create a copy of the canonical template:** [Open the Google Sheets copy screen](https://docs.google.com/spreadsheets/d/1-KkNNJtsH5zHAvf-dnlcOiSJ55fX-RYsA7Raa0PgP8k/copy)
+**Create a copy of the canonical template:** [Open the Google Sheets copy screen](https://docs.google.com/spreadsheets/d/10nzyqzAO_Hnc20MFKZKDVmikuQ4OOFCQNdk3JwpGnXQ/copy)
 
 For external distribution the canonical template must be shared as **Anyone with the link → Viewer**. The `/copy` link is intentionally used so teachers create their own independent course instance instead of editing the canonical template.
 
 The `installer-v3-alpha` branch now contains the tested **v3.0.0-alpha.9** installer workflow.
 
-The canonical Installer Template is intentionally almost blank. Its bound Apps Script project contains the whole application. After making a copy, the teacher opens the spreadsheet and chooses:
+The canonical Installer Template is intentionally almost blank. Its bound Apps Script project contains the whole application, including the student, classroom display, teacher control and sidebar HTML pages. After making a copy, the teacher opens the spreadsheet and chooses:
 
 `Посещаемость → Установить / восстановить журнал…`
 
