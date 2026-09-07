@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      background: #f8f9fa;
+      color: #202124;
+    }
+
+    .wrap {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #dadce0;
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin: 0 0 6px;
+    }
+
+    .muted {
+      color: #5f6368;
+      font-size: 13px;
+    }
+
+    label {
+      display: block;
+      margin: 16px 0 5px;
+      font-size: 13px;
+    }
+
+    input,
+    button {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 16px;
+      padding: 12px;
+    }
+
+    button {
+      margin-top: 10px;
+      cursor: pointer;
+    }
+
+    #code {
+      font-size: 28px;
+      letter-spacing: 5px;
+      text-align: center;
+    }
+
+    .result {
+      margin-top: 14px;
+      padding: 10px;
+      border-radius: 8px;
+      display: none;
+    }
+
+    .ok {
+      background: #e6f4ea;
+      color: #137333;
+    }
+
+    .bad {
+      background: #fce8e6;
+      color: #b3261e;
+    }
+
+    .suggestion {
+      padding: 10px;
+      border: 1px solid #dadce0;
+      border-top: 0;
+      background: white;
+      cursor: pointer;
+    }
+
+    .student {
+      margin-top: 12px;
+      padding: 10px;
+      background: #f1f3f4;
+      border-radius: 8px;
+    }
+
+    .small {
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1 id="appTitle">Посещаемость</h1>
+
+    <div class="muted">
+      Выберите себя и введите код,
+      показанный преподавателем.
+    </div>
+
+    <div id="searchBlock">
+      <label>Фамилия / ФИО</label>
+
+      <input
+        id="search"
+        autocomplete="off"
+        placeholder="Начните вводить фамилию"
+      >
+
+      <div id="suggestions"></div>
+    </div>
+
+    <div
+      id="selected"
+      class="student"
+      style="display:none"
+    >
+      <b id="studentName"></b>
+
+      <div class="small">
+        № <span id="studentNo"></span>
+      </div>
+
+      <button onclick="changeStudent()">
+        Сменить студента
+      </button>
+    </div>
+
+    <label><span id="digitsLabel">4</span>-значный код</label>
+
+    <input
+      id="code"
+      inputmode="numeric"
+      pattern="[0-9]*"
+      maxlength="4"
+      placeholder="0000"
+    >
+
+    <button onclick="submitMark()">
+      ОТМЕТИТЬСЯ
+    </button>
+
+    <div
+      id="result"
+      class="result"
+    ></div>
+  </div>
+</div>
+
+<script>
+let selectedStudent = null;
+let debounce = null;
+let codeDigits = 4;
+let searchMinChars = 3;
+let rememberStudent = true;
+let studentStorageKey = 'attendance_student_no';
+
+function clientToken() {
+  let t =
+    localStorage.getItem(
+      'attendance_client_token'
+    );
+
+  if (!t) {
+    t =
+      (window.crypto &&
+       window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : String(Date.now()) +
+          '-' +
+          Math.random()
+            .toString(36)
+            .slice(2);
+
+    localStorage.setItem(
+      'attendance_client_token',
+      t
+    );
+  }
+
+  return t;
+}
+
+function selectStudent(s) {
+  selectedStudent = s;
+
+  if (rememberStudent) {
+    localStorage.setItem(studentStorageKey, s.no);
+  }
+
+  document.getElementById('studentName').textContent = s.name;
+  document.getElementById('studentNo').textContent = s.no;
+  document.getElementById('selected').style.display = 'block';
+  document.getElementById('searchBlock').style.display = 'none';
+  document.getElementById('suggestions').innerHTML = '';
+  document.getElementById('code').focus();
+}
+
+function changeStudent() {
+  selectedStudent = null;
+  localStorage.removeItem(studentStorageKey);
+  document.getElementById('selected').style.display = 'none';
+  document.getElementById('searchBlock').style.display = 'block';
+  document.getElementById('search').value = '';
+  document.getElementById('search').focus();
+}
+
+document.getElementById('search')
+  .addEventListener(
+    'input',
+    function() {
+      clearTimeout(debounce);
+
+      const q =
+        this.value.trim();
+
+      debounce =
+        setTimeout(() => {
+          google.script.run
+            .withSuccessHandler(
+              showSuggestions
+            )
+            .withFailureHandler(
+              () => {}
+            )
+            .searchStudents(q);
+        }, 220);
+    }
+  );
+
+function showSuggestions(items) {
+  const box =
+    document.getElementById(
+      'suggestions'
+    );
+
+  box.innerHTML = '';
+
+  (items || []).forEach(s => {
+    const div =
+      document.createElement('div');
+
+    div.className =
+      'suggestion';
+
+    div.textContent =
+      s.name;
+
+    div.onclick =
+      () => selectStudent(s);
+
+    box.appendChild(div);
+  });
+}
+
+function showResult(ok, text) {
+  const el =
+    document.getElementById(
+      'result'
+    );
+
+  el.style.display = 'block';
+
+  el.className =
+    'result ' +
+    (ok ? 'ok' : 'bad');
+
+  el.textContent = text;
+}
+
+function submitMark() {
+  if (!selectedStudent) {
+    showResult(
+      false,
+      'Сначала выберите себя из списка.'
+    );
+    return;
+  }
+
+  const code =
+    document.getElementById('code')
+      .value
+      .replace(/\D/g, '');
+
+  if (code.length !== codeDigits) {
+    showResult(
+      false,
+      'Введите ' +
+        codeDigits +
+        '-значный код.'
+    );
+    return;
+  }
+
+  const button =
+    document.querySelector(
+      'button[onclick="submitMark()"]'
+    );
+
+  button.disabled = true;
+  button.textContent = 'ОТПРАВЛЯЮ…';
+
+  showResult(
+    true,
+    'Проверяю код и записываю присутствие…'
+  );
+
+  google.script.run
+    .withSuccessHandler(r => {
+      button.disabled = false;
+      button.textContent = 'ОТМЕТИТЬСЯ';
+
+      showResult(
+        !!r.ok,
+        r.message || ''
+      );
+
+      if (r.ok) {
+        document
+          .getElementById('code')
+          .value = '';
+      }
+    })
+    .withFailureHandler(() => {
+      google.script.run
+        .withSuccessHandler(status => {
+          button.disabled = false;
+          button.textContent =
+            'ОТМЕТИТЬСЯ';
+
+          if (
+            status &&
+            status.marked
+          ) {
+            document
+              .getElementById('code')
+              .value = '';
+
+            showResult(
+              true,
+              '✓ Присутствие отмечено.'
+            );
+          } else {
+            showResult(
+              false,
+              'Не удалось подтвердить отметку. Повторите отправку.'
+            );
+          }
+        })
+        .withFailureHandler(() => {
+          button.disabled = false;
+          button.textContent =
+            'ОТМЕТИТЬСЯ';
+
+          showResult(
+            false,
+            'Не удалось подтвердить отметку. Повторите отправку.'
+          );
+        })
+        .getAttendanceStatus(
+          selectedStudent.no
+        );
+    })
+    .submitAttendance(
+      selectedStudent.no,
+      code,
+      clientToken()
+    );
+}
+
+(function loadConfig() {
+  google.script.run
+    .withSuccessHandler(cfg => {
+      if (!cfg) return;
+      codeDigits = Number(cfg.codeDigits || 4);
+      searchMinChars = Number(cfg.searchMinChars || 3);
+      rememberStudent = cfg.rememberStudent !== false;
+      studentStorageKey = 'attendance_student_no_' + String(cfg.instanceId || cfg.discipline || 'default');
+      document.getElementById('appTitle').textContent = (cfg.discipline || 'Дисциплина') + ' — посещаемость';
+      document.getElementById('digitsLabel').textContent = codeDigits;
+      const input = document.getElementById('code');
+      input.maxLength = codeDigits;
+      input.placeholder = '0'.repeat(codeDigits);
+
+      if (rememberStudent) {
+        const no = localStorage.getItem(studentStorageKey);
+        if (no) {
+          google.script.run.withSuccessHandler(s => { if (s) selectStudent(s); }).getStudentByNo(no);
+        }
+      }
+    })
+    .getPublicConfig();
+})();
+</script>
+</body>
+</html>
