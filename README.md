@@ -17,9 +17,25 @@ The project provides a reusable attendance workflow with:
 - safe rebuilding of the journal from source data;
 - safe deletion of lessons without manually deleting journal columns.
 
-## Current version
+## Two distribution variants
 
-**v2.7**
+### 1. Stable ready-made template
+
+The `main` branch contains the tested **v2.7** workflow. A teacher makes a copy of a fully prepared Google Sheet and deploys its bound Apps Script project as a Web App.
+
+This remains the recommended stable option.
+
+### 2. Installer / loader prototype
+
+This branch (`installer-v3-alpha`) experiments with **v3.0.0-alpha.1**.
+
+Instead of depending on a prebuilt spreadsheet layout, the Apps Script project contains `Installer.gs`. The installer can create the required sheets, headers, validation rules, lesson types, settings and technical structures in a blank Google Sheet.
+
+See [docs/INSTALLER_ALPHA.md](docs/INSTALLER_ALPHA.md).
+
+The current alpha intentionally requires running `installAttendanceWorkbook()` once from the Apps Script editor. After independent testing, the next step is a bootstrap `onOpen()` that detects a missing schema and offers an `Установить журнал…` menu automatically.
+
+## Data model
 
 The journal is treated as a generated view. Source data lives in:
 
@@ -48,25 +64,22 @@ apps-script/
 ├── Attendance.gs
 ├── Interfaces.gs
 ├── Utils.gs
+├── Installer.gs          # installer-v3-alpha only
 ├── Sidebar.html
 ├── Student.html
 ├── Display.html
 └── Teacher.html
 ```
 
-The `.gs` modules are an exact split of the tested v2.7 `Code.gs`; their concatenation in the order above reproduces the original source.
-
 ## Installation
 
-See [docs/INSTALL.md](docs/INSTALL.md).
+Stable template: [docs/INSTALL.md](docs/INSTALL.md)
+
+Installer alpha: [docs/INSTALLER_ALPHA.md](docs/INSTALLER_ALPHA.md)
 
 ## Usage
 
 See [docs/USAGE.md](docs/USAGE.md).
-
-## Data model
-
-See [docs/DATA_MODEL.md](docs/DATA_MODEL.md).
 
 ## Security notes
 
