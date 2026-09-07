@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.0.0-alpha.9 — Safety hardening
+
+- normal install/recovery no longer clears existing students, lessons, grades, settings or attendance history;
+- added `Восстановить структуру журнала…` as a non-destructive repair operation;
+- added separate `Полный сброс журнала…` with typed `СБРОС` confirmation;
+- full reset creates a Google Drive backup before destructive changes;
+- installer cleanup now removes only the known blank `Установщик` bootstrap sheet with the expected shape;
+- added `ScriptLock` around attendance write critical section with a second duplicate check under the lock;
+- added direct `/copy` entry point for the canonical Installer Template;
+- documented color semantics as score intensity: cold colors for low values, warm/hot colors for high values; the actual scale remains unchanged;
+- added automated source-level safety tests and JavaScript syntax checks.
+
 ## v3.0.0-alpha.8 — Installer Edition
 
 - added editable `Шкала оценок` with a fixed universal score-to-color mapping;
