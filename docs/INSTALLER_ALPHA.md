@@ -1,4 +1,4 @@
-# Installer Edition — v3 alpha.8
+# Installer Edition — v3 alpha.9
 
 This branch contains the tested installer distribution model for Attendance Sheet while keeping the stable v2.7 template workflow on `main`.
 
@@ -7,6 +7,10 @@ This branch contains the tested installer distribution model for Attendance Shee
 The teacher does **not** need GitHub, `clasp`, a terminal, or manual Apps Script file creation.
 
 The canonical Installer Template is a Google Sheet with the complete bound Apps Script project already attached. The visible workbook itself is intentionally minimal.
+
+Canonical copy link: [https://docs.google.com/spreadsheets/d/1-KkNNJtsH5zHAvf-dnlcOiSJ55fX-RYsA7Raa0PgP8k/copy](https://docs.google.com/spreadsheets/d/1-KkNNJtsH5zHAvf-dnlcOiSJ55fX-RYsA7Raa0PgP8k/copy)
+
+The source template must be shared as **Anyone with the link → Viewer** before external distribution.
 
 User flow:
 
@@ -21,7 +25,11 @@ User flow:
 9. Copy the exact production URL ending in `/exec`.
 10. Save it through `Посещаемость → Настроить URL веб-приложения`.
 
-The installer can be rerun after an interrupted installation and reconstructs a partially created workbook.
+The installer can be rerun after an interrupted installation and reconstructs a partially created workbook **without clearing existing course data**.
+
+For an already installed workbook the normal menu exposes `Восстановить структуру журнала…`. Recovery preserves students, lesson registry, grades, attendance history and existing editable configuration while recreating missing schema elements and rebuilding the generated journal.
+
+A destructive reset is separated into `Полный сброс журнала…`. It requires a second typed confirmation (`СБРОС`) and automatically creates a Google Drive backup before clearing data.
 
 ## Workbook created by the installer
 
@@ -49,31 +57,37 @@ If the schema is missing or incomplete, the menu contains only installer-oriente
 
 After successful installation the normal attendance menu is shown.
 
-## Tested alpha.8 workflow
+## Tested workflow
 
-The alpha.8 integration test covered:
+The previously verified end-to-end scenarios remain the functional baseline:
 
 - installation from a blank spreadsheet;
 - recovery after a partially failed installation;
 - automatic student synchronization;
-- creating a lesson from the spreadsheet menu;
-- creating a lesson from the teacher control page;
-- creation of `Пос.` / `Оц.` columns in the generated journal;
-- regular attendance codes;
-- late-attendance codes;
-- regular and late codes on the classroom display;
-- student attendance submission;
-- configurable late points;
-- automatic absence points on lesson finish;
-- technical attendance history in `Отметки`;
+- creating a lesson from the spreadsheet menu and teacher control page;
+- creation of `Пос.` / `Оц.` columns;
+- regular and late attendance codes;
+- student, display and teacher interfaces;
+- automatic absences on lesson finish;
+- technical attendance history;
 - safe lesson deletion;
-- version/schema diagnostics;
-- creation and editing of the universal score scale;
-- immediate color formatting for newly created lesson columns.
+- diagnostics;
+- editable universal score scale.
+
+alpha.9 additionally adds automated **source-level safety tests** for:
+
+- non-destructive recovery path;
+- explicit backup-before-reset ordering;
+- bootstrap-only cleanup;
+- attendance duplicate protection under `ScriptLock`;
+- JavaScript syntax and duplicate-function checks;
+- fixed cold-to-hot score-scale direction.
+
+These tests do not replace live Google Apps Script integration tests; they are a regression guard for the safety properties introduced in alpha.9.
 
 ## Universal score scale
 
-Installer alpha.8 adds the editable `Шкала оценок` sheet. It defines one fixed visual language for all `Пос.` and `Оц.` cells, independent of the lesson column:
+Installer alpha.9 adds the editable `Шкала оценок` sheet. It defines one fixed visual language for all `Пос.` and `Оц.` cells, independent of the lesson column:
 
 | From | To | Default meaning |
 | ---: | ---: | --- |
@@ -89,9 +103,23 @@ Each row also contains a HEX color, human-readable description and `Активе
 
 The same score therefore has the same color everywhere in the journal. Summary columns (`Баллы за посещение`, `Баллы за работу`, `Итого`) are intentionally excluded because they are cumulative values and are not directly comparable with a single lesson score.
 
+The scale is intentionally **cold → hot by score intensity**: low values are blue and high values are red. Red is not an error/warning color here; it represents a high score.
+
 Changing the scale rebuilds the journal conditional-formatting rules. Starting a lesson, rebuilding the journal and reopening the workbook also resynchronize the score formatting.
 
-alpha.8 fixes an alpha.7 ordering bug where the formatting rules were requested before the newly created lesson had been written to the `Занятия` registry.
+alpha.8 fixed the alpha.7 ordering bug where formatting rules were requested before the newly created lesson had been written to the `Занятия` registry.
+
+## alpha.9 hardening
+
+alpha.9 implements the safety fixes identified during review:
+
+- normal installation/recovery is non-destructive;
+- an already installed workbook can no longer be silently “reinstalled” through the ordinary installer path;
+- `Восстановить структуру журнала…` repairs missing schema elements and rebuilds the generated journal while preserving course data;
+- `Полный сброс журнала…` is a separate operation with an explicit warning, typed `СБРОС` confirmation and automatic Drive backup;
+- `cleanupInstallerBlankSheets_()` deletes only the known blank bootstrap sheet `Установщик` with the expected 100×10 shape; arbitrary empty user sheets are never removed;
+- `submitAttendance()` uses `LockService.getScriptLock()` and repeats the duplicate check under the lock before appending to `Отметки`;
+- repository tests include syntax, duplicate-function, installer-safety, concurrency-lock and score-scale-direction checks.
 
 ## Status model
 
@@ -115,8 +143,8 @@ The installer applies:
 
 Current alpha writes and synchronizes:
 
-- `app_version = 3.0.0-alpha.8`;
-- `code_version = 3.0.0-alpha.8`;
+- `app_version = 3.0.0-alpha.9`;
+- `code_version = 3.0.0-alpha.9`;
 - `schema_version = 3`;
 - `install_status = ready`.
 
@@ -148,4 +176,4 @@ The modular source lives in `apps-script/`.
 
 ## Alpha status
 
-v3.0.0-alpha.8 is the current Installer Edition candidate. The canonical Installer Template was copied and tested as a fresh end-user instance, including the score-scale workflow. The branch remains alpha until it has been used in a small number of real teaching sessions.
+v3.0.0-alpha.9 is the current Installer Edition candidate. The branch remains alpha until the hardening changes have been smoke-tested in a fresh copy of the canonical template and then used in a small number of real teaching sessions.
