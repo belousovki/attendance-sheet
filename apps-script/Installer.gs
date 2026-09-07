@@ -1,19 +1,214 @@
-/* -------------------- v3 alpha installer -------------------- */
+/* -------------------- v3.0 alpha.6 installer -------------------- */
 
-const INSTALLER_APP_VERSION = '3.0.0-alpha.1';
+const INSTALLER_APP_VERSION = '3.0.0-alpha.6';
 const INSTALLER_SCHEMA_VERSION = 3;
+
+function isAttendanceInstallationComplete_(spreadsheet) {
+  const settings = spreadsheet.getSheetByName(SHEETS.SETTINGS);
+  if (!settings) return false;
+
+  const schema = String(
+    getSettingValueInSpreadsheet_(spreadsheet, 'schema_version') || ''
+  ).trim();
+
+  const status = String(
+    getSettingValueInSpreadsheet_(spreadsheet, 'install_status') || ''
+  ).trim();
+
+  return schema === String(INSTALLER_SCHEMA_VERSION) && status === 'ready';
+}
+
+function syncVersionMetadata_(spreadsheet) {
+  const settings = spreadsheet.getSheetByName(SHEETS.SETTINGS);
+  if (!settings) return;
+
+  setSettingValueInSpreadsheet_(
+    spreadsheet,
+    'app_version',
+    INSTALLER_APP_VERSION,
+    'Версия приложения'
+  );
+
+  setSettingValueInSpreadsheet_(
+    spreadsheet,
+    'code_version',
+    INSTALLER_APP_VERSION,
+    'Версия установленного кода'
+  );
+
+  const schema = String(
+    getSettingValueInSpreadsheet_(spreadsheet, 'schema_version') || ''
+  ).trim();
+
+  if (!schema) {
+    setSettingValueInSpreadsheet_(
+      spreadsheet,
+      'schema_version',
+      INSTALLER_SCHEMA_VERSION,
+      'Версия структуры данных'
+    );
+  }
+}
+
+function migrateLegacyLessonStatuses_(spreadsheet) {
+  const sh = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  if (!sh) return 0;
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return 0;
+
+  const range = sh.getRange(2, LESSON_COL.STATUS, lastRow - 1, 1);
+  const values = range.getValues();
+  let changed = 0;
+
+  values.forEach(row => {
+    if (String(row[0] || '').trim().toLowerCase() === 'finished') {
+      row[0] = 'closed';
+      changed++;
+    }
+  });
+
+  if (changed) range.setValues(values);
+  return changed;
+}
+
+function applyLessonDateFormats_(spreadsheet) {
+  const sh = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  if (!sh) return;
+
+  const rows = Math.max(sh.getMaxRows() - 1, 1);
+
+  sh.getRange(2, LESSON_COL.DATE, rows, 1)
+    .setNumberFormat('dd.MM.yyyy');
+
+  [LESSON_COL.STARTED, LESSON_COL.ENDED, LESSON_COL.CREATED]
+    .forEach(col => {
+      sh.getRange(2, col, rows, 1)
+        .setNumberFormat('dd.MM.yyyy HH:mm:ss');
+    });
+}
+
+function applyLessonValidationRules_(spreadsheet) {
+  const sh = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  const types = spreadsheet.getSheetByName(SHEETS.TYPES);
+  if (!sh || !types) return;
+
+  const modeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Очно', 'Дистанционно'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  const statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['active', 'closed'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  const typeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(types.getRange('A2:A100'), true)
+    .setAllowInvalid(true)
+    .build();
+
+  const rows = Math.max(sh.getMaxRows() - 1, 1);
+
+  sh.getRange(2, LESSON_COL.MODE, rows, 1).setDataValidation(modeRule);
+  sh.getRange(2, LESSON_COL.TYPE, rows, 1).setDataValidation(typeRule);
+  sh.getRange(2, LESSON_COL.STATUS, rows, 1).setDataValidation(statusRule);
+}
+
+function countInstallerStudents_(spreadsheet, activeOnly) {
+  const sh = spreadsheet.getSheetByName(SHEETS.STUDENTS);
+  if (!sh || sh.getLastRow() < 2) return 0;
+
+  const values = sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues();
+
+  return values.filter(r => {
+    const hasStudent = r[0] !== '' && r[0] != null && String(r[1] || '').trim();
+    if (!hasStudent) return false;
+    if (!activeOnly) return true;
+    return settingBool_(r[2], true);
+  }).length;
+}
+
+function getInstallationHealth_(spreadsheet) {
+  const required = [
+    SHEETS.STUDENTS,
+    SHEETS.JOURNAL,
+    SHEETS.LESSONS,
+    SHEETS.TYPES,
+    SHEETS.SETTINGS,
+    SHEETS.MARKS
+  ];
+
+  const missing = required.filter(name => !spreadsheet.getSheetByName(name));
+  const settings = spreadsheet.getSheetByName(SHEETS.SETTINGS);
+
+  const storedVersion = settings
+    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'app_version') || '').trim()
+    : '';
+
+  const storedSchema = settings
+    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'schema_version') || '').trim()
+    : '';
+
+  const installStatus = settings
+    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'install_status') || '').trim()
+    : '';
+
+  const webAppUrl = settings
+    ? String(getSettingValueInSpreadsheet_(spreadsheet, 'web_app_url') || '').trim()
+    : '';
+
+  const lessonSheet = spreadsheet.getSheetByName(SHEETS.LESSONS);
+  let lessons = 0;
+  let activeLessons = 0;
+
+  if (lessonSheet && lessonSheet.getLastRow() >= 2) {
+    const rows = lessonSheet.getRange(
+      2,
+      1,
+      lessonSheet.getLastRow() - 1,
+      LESSON_COL.STATUS
+    ).getValues();
+
+    rows.forEach(r => {
+      const id = String(r[LESSON_COL.ID - 1] || '').trim();
+      if (!id) return;
+      lessons++;
+      if (String(r[LESSON_COL.STATUS - 1] || '').trim() === 'active') {
+        activeLessons++;
+      }
+    });
+  }
+
+  return {
+    missing,
+    storedVersion,
+    storedSchema,
+    installStatus,
+    webAppConfigured: !!webAppUrl,
+    students: countInstallerStudents_(spreadsheet, false),
+    activeStudents: countInstallerStudents_(spreadsheet, true),
+    lessons,
+    activeLessons
+  };
+}
 
 function installAttendanceWorkbook() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   if (!spreadsheet) {
-    throw new Error('Откройте Google-таблицу и запустите установщик из связанного Apps Script.');
+    throw new Error(
+      'Откройте Google-таблицу и запустите установщик из связанного Apps Script.'
+    );
   }
 
   const ui = SpreadsheetApp.getUi();
+  const alreadyReady = isAttendanceInstallationComplete_(spreadsheet);
+
   const answer = ui.alert(
-    'Установить журнал посещаемости?',
-    'Установщик создаст и настроит служебные листы в этой таблице. ' +
-    'Существующие листы с другими именами не удаляются.',
+    alreadyReady ? 'Переустановить структуру журнала?' : 'Установить журнал посещаемости?',
+    alreadyReady
+      ? 'Структура уже отмечена как установленная. Переустановка очистит служебные листы.'
+      : 'Установщик создаст или восстановит служебные листы. Частично созданную структуру можно безопасно запустить повторно.',
     ui.ButtonSet.YES_NO
   );
 
@@ -21,29 +216,52 @@ function installAttendanceWorkbook() {
 
   const disciplineResponse = ui.prompt(
     'Название дисциплины',
-    'Введите название дисциплины. Его можно изменить позже в листе «Настройки».',
+    'Введите название дисциплины.',
     ui.ButtonSet.OK_CANCEL
   );
 
   if (disciplineResponse.getSelectedButton() !== ui.Button.OK) return;
 
-  const discipline = String(disciplineResponse.getResponseText() || '').trim() || 'Название дисциплины';
+  const discipline = String(disciplineResponse.getResponseText() || '').trim()
+    || 'Название дисциплины';
 
-  const result = installAttendanceWorkbook_(spreadsheet, {
-    discipline: discipline,
-    locale: 'ru'
-  });
+  try {
+    const result = installAttendanceWorkbook_(spreadsheet, {
+      discipline,
+      locale: 'ru'
+    });
 
-  ui.alert(
-    'Установка завершена',
-    'Создано листов: ' + result.createdSheets + '.\n' +
-    'Версия приложения: ' + INSTALLER_APP_VERSION + '.\n\n' +
-    'Дальше:\n' +
-    '1. Заполните «Список группы».\n' +
-    '2. Выполните «Посещаемость → Синхронизировать состав группы».\n' +
-    '3. Разверните Apps Script как Web App и вставьте /exec через меню настройки URL.',
-    ui.ButtonSet.OK
-  );
+    onOpen();
+
+    ui.alert(
+      'Установка завершена',
+      'Создано новых листов: ' + result.createdSheets + '.\n' +
+      'Версия: ' + result.appVersion + '.\n' +
+      'Схема: ' + result.schemaVersion + '.\n\n' +
+      'Теперь заполните «Список группы».',
+      ui.ButtonSet.OK
+    );
+  } catch (e) {
+    ui.alert(
+      'Установка остановлена',
+      String(e && e.message ? e.message : e) +
+      '\n\nМожно исправить проблему и запустить установщик повторно: ' +
+      'частичная структура будет пересоздана.',
+      ui.ButtonSet.OK
+    );
+    throw e;
+  }
+}
+
+function runInstallerStep_(name, fn) {
+  try {
+    return fn();
+  } catch (e) {
+    throw new Error(
+      'Ошибка на этапе «' + name + '»: ' +
+      String(e && e.message ? e.message : e)
+    );
+  }
 }
 
 function installAttendanceWorkbook_(spreadsheet, options) {
@@ -57,20 +275,60 @@ function installAttendanceWorkbook_(spreadsheet, options) {
   const settings = ensureInstallerSheet_(spreadsheet, SHEETS.SETTINGS, created);
   const marks = ensureInstallerSheet_(spreadsheet, SHEETS.MARKS, created);
 
-  setupStudentsSheet_(students);
-  setupJournalSheet_(journal, String(options.discipline || 'Название дисциплины'));
-  setupLessonsSheet_(lessons, types);
-  setupLessonTypesSheet_(types);
-  setupSettingsSheet_(settings, spreadsheet, options);
-  setupMarksSheet_(marks);
+  runInstallerStep_('Типы занятий', () => setupInstallerLessonTypes_(types));
+  runInstallerStep_('Список группы', () => setupInstallerStudents_(students));
+  runInstallerStep_('Журнал', () =>
+    setupInstallerJournal_(journal, String(options.discipline || 'Название дисциплины'))
+  );
+  runInstallerStep_('Занятия: структура', () => setupInstallerLessonsBase_(lessons));
+  runInstallerStep_('Настройки', () => setupInstallerSettings_(settings, spreadsheet, options));
+  runInstallerStep_('Отметки', () => setupInstallerMarks_(marks));
+  runInstallerStep_('Занятия: списки выбора', () =>
+    applyInstallerLessonValidations_(lessons, types)
+  );
 
-  props_().setProperty(PROPS.BOUND_SPREADSHEET_ID, spreadsheet.getId());
-  props_().deleteProperty(PROPS.ACTIVE_LESSON);
-  props_().deleteProperty(PROPS.ACTIVE_CHECK);
+  runInstallerStep_('Привязка экземпляра', () => {
+    props_().setProperty(PROPS.BOUND_SPREADSHEET_ID, spreadsheet.getId());
+    props_().deleteProperty(PROPS.ACTIVE_LESSON);
+    props_().deleteProperty(PROPS.ACTIVE_CHECK);
+    bindToContainer_();
+  });
 
-  bindToContainer_();
-  rebuildJournalFromRegistryInSpreadsheet_(spreadsheet);
-  cleanupUnusedBlankSheet_(spreadsheet);
+  runInstallerStep_('Перестройка журнала', () =>
+    rebuildJournalFromRegistryInSpreadsheet_(spreadsheet)
+  );
+
+  runInstallerStep_('Очистка исходного пустого листа', () =>
+    cleanupInstallerBlankSheets_(spreadsheet)
+  );
+
+  runInstallerStep_('Завершение установки', () => {
+    setSettingValueInSpreadsheet_(
+      spreadsheet,
+      'install_status',
+      'ready',
+      'Состояние установки'
+    );
+
+    setSettingValueInSpreadsheet_(
+      spreadsheet,
+      'app_version',
+      INSTALLER_APP_VERSION,
+      'Версия приложения'
+    );
+
+    setSettingValueInSpreadsheet_(
+      spreadsheet,
+      'schema_version',
+      INSTALLER_SCHEMA_VERSION,
+      'Версия структуры данных'
+    );
+
+    syncVersionMetadata_(spreadsheet);
+    migrateLegacyLessonStatuses_(spreadsheet);
+    applyLessonValidationRules_(spreadsheet);
+    applyLessonDateFormats_(spreadsheet);
+  });
 
   SpreadsheetApp.flush();
 
@@ -91,23 +349,27 @@ function ensureInstallerSheet_(spreadsheet, name, created) {
   return sh;
 }
 
-function resetInstallerSheetArea_(sheet, rows, cols) {
+function ensureInstallerGrid_(sheet, rows, cols) {
   if (sheet.getMaxRows() < rows) {
     sheet.insertRowsAfter(sheet.getMaxRows(), rows - sheet.getMaxRows());
   }
+
   if (sheet.getMaxColumns() < cols) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), cols - sheet.getMaxColumns());
   }
 
-  sheet.getRange(1, 1, rows, cols)
+  const range = sheet.getRange(1, 1, rows, cols);
+  if (range.isPartOfMerge()) range.breakApart();
+
+  range
     .clearContent()
     .clearFormat()
     .clearDataValidations()
     .clearNote();
 }
 
-function setupStudentsSheet_(sheet) {
-  resetInstallerSheetArea_(sheet, 1000, 3);
+function setupInstallerStudents_(sheet) {
+  ensureInstallerGrid_(sheet, 1000, 3);
 
   sheet.getRange('A1:C1')
     .setValues([['№', 'ФИО', 'Активен']])
@@ -128,11 +390,15 @@ function setupStudentsSheet_(sheet) {
   sheet.setColumnWidth(3, 100);
 }
 
-function setupJournalSheet_(sheet, discipline) {
-  resetInstallerSheetArea_(sheet, 300, 5);
+function setupInstallerJournal_(sheet, discipline) {
+  ensureInstallerGrid_(sheet, 300, 5);
 
   sheet.getRange('A1:E1')
-    .merge()
+    .breakApart()
+    .clearContent()
+    .clearFormat();
+
+  sheet.getRange('A1')
     .setValue('Журнал посещаемости — ' + discipline)
     .setFontWeight('bold')
     .setFontSize(14)
@@ -147,6 +413,7 @@ function setupJournalSheet_(sheet, discipline) {
     .setWrap(true);
 
   sheet.getRange('A3:E3').clearContent().setBackground('#EAEAEA');
+
   sheet.setFrozenRows(3);
   sheet.setFrozenColumns(2);
   sheet.setColumnWidth(1, 64);
@@ -154,46 +421,27 @@ function setupJournalSheet_(sheet, discipline) {
   sheet.setColumnWidths(3, 3, 145);
 }
 
-function setupLessonsSheet_(sheet, typesSheet) {
-  resetInstallerSheetArea_(sheet, 300, 14);
-
-  const headers = [[
-    'ID занятия', 'Дата', 'Формат', 'Тип занятия', '№ по типу', 'Тема',
-    'Статус', 'Начало', 'Завершение', 'Колонка Пос.', 'Колонка Оц.',
-    'Проверок', 'Заметка', 'Создано'
-  ]];
+function setupInstallerLessonsBase_(sheet) {
+  ensureInstallerGrid_(sheet, 300, 14);
 
   sheet.getRange(1, 1, 1, 14)
-    .setValues(headers)
+    .setValues([[
+      'ID занятия', 'Дата', 'Формат', 'Тип занятия', '№ по типу', 'Тема',
+      'Статус', 'Начало', 'Завершение', 'Колонка Пос.', 'Колонка Оц.',
+      'Проверок', 'Заметка', 'Создано'
+    ]])
     .setFontWeight('bold')
     .setBackground('#EAEAEA')
     .setWrap(true);
 
-  const modeRule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['Очно', 'Дистанционно'], true)
-    .setAllowInvalid(false)
-    .build();
-
-  const statusRule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['active', 'finished'], true)
-    .setAllowInvalid(true)
-    .build();
-
-  const typeRule = SpreadsheetApp.newDataValidation()
-    .requireValueInRange(typesSheet.getRange('A2:A100'), true)
-    .setAllowInvalid(true)
-    .build();
-
-  sheet.getRange(2, LESSON_COL.MODE, sheet.getMaxRows() - 1, 1).setDataValidation(modeRule);
-  sheet.getRange(2, LESSON_COL.TYPE, sheet.getMaxRows() - 1, 1).setDataValidation(typeRule);
-  sheet.getRange(2, LESSON_COL.STATUS, sheet.getMaxRows() - 1, 1).setDataValidation(statusRule);
-
-  sheet.getRange(1, LESSON_COL.TYPE).setNote(
-    'Можно менять после занятия; нумерация, подпись и цвет в Журнале обновляются.'
-  );
-  sheet.getRange(1, LESSON_COL.TYPE_NUMBER).setNote('Заполняется автоматически.');
-  sheet.getRange(1, LESSON_COL.TOPIC).setNote('Необязательное поле; можно редактировать после занятия.');
-  sheet.getRange(1, LESSON_COL.NOTES).setNote('Свободная заметка преподавателя.');
+  sheet.getRange(1, LESSON_COL.TYPE)
+    .setNote('Можно менять после занятия; нумерация, подпись и цвет в Журнале обновляются.');
+  sheet.getRange(1, LESSON_COL.TYPE_NUMBER)
+    .setNote('Заполняется автоматически.');
+  sheet.getRange(1, LESSON_COL.TOPIC)
+    .setNote('Необязательное поле; можно редактировать после занятия.');
+  sheet.getRange(1, LESSON_COL.NOTES)
+    .setNote('Свободная заметка преподавателя.');
 
   sheet.setFrozenRows(1);
   sheet.setColumnWidth(1, 220);
@@ -207,10 +455,42 @@ function setupLessonsSheet_(sheet, typesSheet) {
   sheet.setColumnWidths(10, 3, 110);
   sheet.setColumnWidth(13, 320);
   sheet.setColumnWidth(14, 150);
+
+  sheet.getRange(2, LESSON_COL.DATE, sheet.getMaxRows() - 1, 1)
+    .setNumberFormat('dd.MM.yyyy');
+
+  [LESSON_COL.STARTED, LESSON_COL.ENDED, LESSON_COL.CREATED]
+    .forEach(col => {
+      sheet.getRange(2, col, sheet.getMaxRows() - 1, 1)
+        .setNumberFormat('dd.MM.yyyy HH:mm:ss');
+    });
 }
 
-function setupLessonTypesSheet_(sheet) {
-  resetInstallerSheetArea_(sheet, 100, 4);
+function applyInstallerLessonValidations_(sheet, typesSheet) {
+  const modeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Очно', 'Дистанционно'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  const statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['active', 'closed'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  const typeRule = SpreadsheetApp.newDataValidation()
+    .requireValueInRange(typesSheet.getRange('A2:A100'), true)
+    .setAllowInvalid(true)
+    .build();
+
+  const rows = Math.max(sheet.getMaxRows() - 1, 1);
+
+  sheet.getRange(2, LESSON_COL.MODE, rows, 1).setDataValidation(modeRule);
+  sheet.getRange(2, LESSON_COL.TYPE, rows, 1).setDataValidation(typeRule);
+  sheet.getRange(2, LESSON_COL.STATUS, rows, 1).setDataValidation(statusRule);
+}
+
+function setupInstallerLessonTypes_(sheet) {
+  ensureInstallerGrid_(sheet, 100, 4);
 
   sheet.getRange('A1:D1')
     .setValues([['Тип занятия', 'Цвет (HEX)', 'Нумеровать', 'Активен']])
@@ -245,8 +525,8 @@ function setupLessonTypesSheet_(sheet) {
   sheet.setColumnWidths(3, 2, 120);
 }
 
-function setupSettingsSheet_(sheet, spreadsheet, options) {
-  resetInstallerSheetArea_(sheet, 100, 3);
+function setupInstallerSettings_(sheet, spreadsheet, options) {
+  ensureInstallerGrid_(sheet, 100, 3);
 
   sheet.getRange('A1:C1')
     .setValues([['Ключ', 'Значение', 'Описание']])
@@ -255,13 +535,15 @@ function setupSettingsSheet_(sheet, spreadsheet, options) {
 
   const rows = [
     ['discipline', String(options.discipline || 'Название дисциплины'), 'Название дисциплины'],
-    ['locale', String(options.locale || 'ru'), 'Язык интерфейса: ru / en (подготовка к интернационализации)'],
+    ['locale', String(options.locale || 'ru'), 'Язык интерфейса: ru / en'],
     ['app_version', INSTALLER_APP_VERSION, 'Версия приложения'],
+    ['code_version', INSTALLER_APP_VERSION, 'Версия установленного кода'],
     ['schema_version', INSTALLER_SCHEMA_VERSION, 'Версия структуры данных'],
+    ['install_status', 'installing', 'Состояние установки'],
     ['regular_code_seconds', 60, 'Время действия обычного кода, секунд'],
-    ['regular_code_cycles', 2, 'Пока не используется: коды сменяются непрерывно до ручной остановки'],
+    ['regular_code_cycles', 2, 'Пока не используется'],
     ['late_code_seconds', 60, 'Время действия кода опоздания, секунд'],
-    ['late_code_cycles', 1, 'Пока не используется: коды сменяются непрерывно до ручной остановки'],
+    ['late_code_cycles', 1, 'Пока не используется'],
     ['attendance_present_points', 5, 'Баллы за присутствие'],
     ['attendance_absent_points', 0, 'Баллы за подтверждённое отсутствие'],
     ['auto_absent_on_finish', true, 'При завершении занятия выставлять балл отсутствия неотметившимся'],
@@ -272,14 +554,14 @@ function setupSettingsSheet_(sheet, spreadsheet, options) {
     ['schedule_days', '', 'Пока не используется'],
     ['first_lesson_date', '', 'Пока не используется'],
     ['web_app_url', '', 'Точный URL рабочего развертывания /exec'],
-    ['student_url', '', 'Прямая ссылка на страницу студента; строится из web_app_url'],
-    ['display_url', '', 'Прямая ссылка на экран кода; строится из web_app_url'],
+    ['student_url', '', 'Прямая ссылка на страницу студента'],
+    ['display_url', '', 'Прямая ссылка на экран кода'],
     ['sheet_url', spreadsheet.getUrl(), 'Прямая ссылка на этот журнал'],
     ['teacher_url', '', 'Секретная ссылка на мобильный пульт'],
-    ['teacher_key', newTeacherKey_(), 'Секретный ключ пульта; создаётся автоматически'],
-    ['student_short_url', '', 'Необязательная короткая ссылка на страницу студента'],
-    ['display_short_url', '', 'Необязательная короткая ссылка на экран кода'],
-    ['sheet_short_url', '', 'Необязательная короткая ссылка на журнал'],
+    ['teacher_key', newTeacherKey_(), 'Секретный ключ пульта'],
+    ['student_short_url', '', 'Необязательная короткая ссылка'],
+    ['display_short_url', '', 'Необязательная короткая ссылка'],
+    ['sheet_short_url', '', 'Необязательная короткая ссылка'],
     ['instance_spreadsheet_id', spreadsheet.getId(), 'ID экземпляра таблицы']
   ];
 
@@ -290,8 +572,8 @@ function setupSettingsSheet_(sheet, spreadsheet, options) {
   sheet.setColumnWidth(3, 560);
 }
 
-function setupMarksSheet_(sheet) {
-  resetInstallerSheetArea_(sheet, 3000, 12);
+function setupInstallerMarks_(sheet) {
+  ensureInstallerGrid_(sheet, 3000, 12);
 
   sheet.getRange(1, 1, 1, 12)
     .setValues([[
@@ -303,10 +585,10 @@ function setupMarksSheet_(sheet) {
     .setBackground('#EAEAEA');
 
   sheet.setFrozenRows(1);
-  sheet.hideSheet();
+  if (!sheet.isSheetHidden()) sheet.hideSheet();
 }
 
-function cleanupUnusedBlankSheet_(spreadsheet) {
+function cleanupInstallerBlankSheets_(spreadsheet) {
   const expected = new Set([
     SHEETS.STUDENTS,
     SHEETS.JOURNAL,
@@ -316,41 +598,75 @@ function cleanupUnusedBlankSheet_(spreadsheet) {
     SHEETS.MARKS
   ]);
 
-  const sheets = spreadsheet.getSheets();
-  if (sheets.length <= expected.size) return;
-
-  sheets.forEach(sh => {
+  spreadsheet.getSheets().slice().forEach(sh => {
     if (expected.has(sh.getName())) return;
     if (spreadsheet.getSheets().length <= 1) return;
 
-    const isBlank = sh.getLastRow() <= 1 && sh.getLastColumn() <= 1 && sh.getRange('A1').getValue() === '';
+    const isBlank =
+      sh.getLastRow() <= 1 &&
+      sh.getLastColumn() <= 1 &&
+      sh.getRange('A1').getValue() === '';
+
     if (isBlank) spreadsheet.deleteSheet(sh);
   });
 }
 
 function diagnoseAttendanceInstallation() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  const lines = [];
-  const required = [
-    SHEETS.STUDENTS,
-    SHEETS.JOURNAL,
-    SHEETS.LESSONS,
-    SHEETS.TYPES,
-    SHEETS.SETTINGS,
-    SHEETS.MARKS
-  ];
+  const ui = SpreadsheetApp.getUi();
 
-  required.forEach(name => {
-    lines.push((spreadsheet.getSheetByName(name) ? '✓ ' : '✗ ') + name);
-  });
-
-  const settingsSheet = spreadsheet.getSheetByName(SHEETS.SETTINGS);
-  if (settingsSheet) {
-    lines.push('');
-    lines.push('app_version: ' + String(getSettingValueInSpreadsheet_(spreadsheet, 'app_version') || 'не задана'));
-    lines.push('schema_version: ' + String(getSettingValueInSpreadsheet_(spreadsheet, 'schema_version') || 'не задана'));
-    lines.push('web_app_url: ' + (String(getSettingValueInSpreadsheet_(spreadsheet, 'web_app_url') || '').trim() ? 'настроен' : 'не настроен'));
+  if (!spreadsheet) {
+    ui.alert('Нет активной Google-таблицы.');
+    return;
   }
 
-  SpreadsheetApp.getUi().alert('Диагностика установки', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  if (spreadsheet.getSheetByName(SHEETS.SETTINGS)) {
+    syncVersionMetadata_(spreadsheet);
+    migrateLegacyLessonStatuses_(spreadsheet);
+    applyLessonValidationRules_(spreadsheet);
+    applyLessonDateFormats_(spreadsheet);
+  }
+
+  const health = getInstallationHealth_(spreadsheet);
+  const lines = [];
+
+  lines.push(health.missing.length ? 'Структура: ПРОБЛЕМА' : 'Структура: OK');
+
+  if (health.missing.length) {
+    lines.push('Не хватает листов: ' + health.missing.join(', '));
+  }
+
+  lines.push('Код: ' + INSTALLER_APP_VERSION);
+  lines.push('Записанная версия: ' + (health.storedVersion || 'не задана'));
+  lines.push(
+    'Схема данных: ' +
+    (health.storedSchema || 'не задана') +
+    ' / ожидается ' +
+    INSTALLER_SCHEMA_VERSION
+  );
+  lines.push('Состояние установки: ' + (health.installStatus || 'не задано'));
+  lines.push('Web App URL: ' + (health.webAppConfigured ? 'настроен' : 'не настроен'));
+  lines.push('');
+  lines.push(
+    'Студентов: ' + health.students +
+    ' (активных: ' + health.activeStudents + ')'
+  );
+  lines.push(
+    'Занятий: ' + health.lessons +
+    ' (активных: ' + health.activeLessons + ')'
+  );
+  lines.push('');
+  lines.push(
+    health.missing.length ||
+    health.installStatus !== 'ready' ||
+    health.storedSchema !== String(INSTALLER_SCHEMA_VERSION)
+      ? 'Итог: требуется проверка'
+      : 'Итог: OK'
+  );
+
+  ui.alert(
+    'Диагностика Attendance Sheet',
+    lines.join('\n'),
+    ui.ButtonSet.OK
+  );
 }
